@@ -112,6 +112,8 @@ export function PlatformShell({ page, incidentId = '' }) {
   const sessionUser = session?.user || null;
   const currentUser = profileBundle?.user || sessionUser;
   const canPost = Boolean(currentUser?.canPost);
+  const initialAuthMode = normalizeAuthMode(searchParams.get('mode'));
+  const postAuthPath = normalizeCallbackPath(searchParams.get('callbackUrl'));
   const showAuthorityRoute =
     currentUser?.role === 'authority' ||
     currentUser?.role === 'admin' ||
@@ -472,7 +474,7 @@ export function PlatformShell({ page, incidentId = '' }) {
           tone: 'success',
           message: 'Authentication successful.'
         });
-        router.push('/');
+        router.push(postAuthPath);
         return;
       }
 
@@ -543,7 +545,7 @@ export function PlatformShell({ page, incidentId = '' }) {
       message: authConfirmation.title
     });
     setAuthConfirmation(null);
-    router.push('/');
+    router.push(postAuthPath);
   }
 
   async function submitReport(payload) {
@@ -753,14 +755,35 @@ export function PlatformShell({ page, incidentId = '' }) {
     }
   }
 
-  const headerStatus = !currentUser
-    ? 'Public feed'
+  if (page === 'auth') {
+    return (
+      <AuthExperience
+        currentUser={currentUser}
+        flash={flash}
+        onContinue={() => router.push(postAuthPath)}
+        onSignOut={() => signOut({ callbackUrl: '/' })}
+      >
+        <AuthScreen
+          confirmation={authConfirmation}
+          initialMode={initialAuthMode}
+          onContinue={continueFromAuthConfirmation}
+          onRequestReset={requestPasswordReset}
+          onResetPassword={completePasswordReset}
+          onSubmit={handleAuth}
+          resetPreview={resetPreview}
+        />
+      </AuthExperience>
+    );
+  }
+
+  const headerIdentity = !currentUser
+    ? 'Public view'
     : currentUser.role === 'authority_pending'
-      ? 'Authority verification pending'
+      ? 'Authority pending'
       : currentUser.permanentPostingBan
-        ? 'Posting suspended permanently'
-        : currentUser.restrictedUntil
-          ? `Posting restricted until ${formatDateTime(currentUser.restrictedUntil)}`
+        ? 'Posting suspended'
+      : currentUser.restrictedUntil
+          ? 'Posting restricted'
           : currentUser.role === 'authority' || currentUser.role === 'admin'
             ? 'Authority access'
             : 'Citizen access';
@@ -769,47 +792,37 @@ export function PlatformShell({ page, incidentId = '' }) {
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">
       <div className="app-grid absolute inset-0 pointer-events-none opacity-70" />
       <header className="sticky top-0 z-40 border-b border-white/10 bg-[var(--surface)]/85 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <Link href="/feed" className="flex min-w-0 items-center gap-4">
             <div className="brand-mark">
               <RadioTower aria-hidden="true" className="h-5 w-5" />
             </div>
-            <div>
-              <p className="font-display text-xl tracking-[0.08em] text-white sm:tracking-[0.12em]">
+            <div className="min-w-0">
+              <p className="font-display truncate text-2xl tracking-[0.02em] text-white">
                 PostAlert
               </p>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-                Next.js / Auth.js / Supabase-ready
-              </p>
             </div>
-          </div>
+          </Link>
 
-          <nav className="hidden items-center gap-2 lg:flex">
-            <HeaderLink href="/">Feed</HeaderLink>
+          <nav className="hidden items-center gap-1 xl:gap-2 lg:flex">
+            <HeaderLink href="/feed">Feed</HeaderLink>
             <HeaderLink href="/report">Report</HeaderLink>
             <HeaderLink href="/trends">Trends</HeaderLink>
             {showAuthorityRoute ? <HeaderLink href="/authority">Authority</HeaderLink> : null}
-            {currentUser ? <HeaderLink href="/profile">Profile</HeaderLink> : <HeaderLink href="/auth">Access</HeaderLink>}
+            {currentUser ? <HeaderLink href="/profile">Profile</HeaderLink> : null}
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 xl:gap-3">
             <StatusPill online={online} mode={status} />
-            <div className="hidden rounded-full border border-white/10 bg-white/5 px-4 py-2 text-right text-xs text-slate-300 md:block">
-              <div className="font-semibold text-white">{headerStatus}</div>
-              <div>{currentUser ? currentUser.name : 'Guest access'}</div>
-            </div>
+            <HeaderAccountPill label={headerIdentity} name={currentUser?.name || 'Read-only public view'} />
             {currentUser ? (
               <button
-                className="ghost-button"
-                onClick={() => signOut({ callbackUrl: '/auth' })}
+                className="ghost-button whitespace-nowrap px-5"
+                onClick={() => signOut({ callbackUrl: '/' })}
               >
                 Sign out
               </button>
-            ) : (
-              <button className="ghost-button" onClick={() => router.push('/auth')}>
-                Sign in
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
@@ -864,6 +877,7 @@ export function PlatformShell({ page, incidentId = '' }) {
         {page === 'auth' ? (
           <AuthScreen
             confirmation={authConfirmation}
+            initialMode={initialAuthMode}
             onContinue={continueFromAuthConfirmation}
             onRequestReset={requestPasswordReset}
             onResetPassword={completePasswordReset}
@@ -873,7 +887,9 @@ export function PlatformShell({ page, incidentId = '' }) {
         ) : null}
 
         {page === 'report' ? (
-          currentUser ? (
+          status === 'loading' ? (
+            <LoadingSurface message="Loading secure report tools..." />
+          ) : currentUser ? (
             <ReportWizard canPost={canPost} onSubmit={submitReport} user={currentUser} />
           ) : (
             <ProtectedMessage href="/auth" title="Sign in to report incidents" />
@@ -881,7 +897,9 @@ export function PlatformShell({ page, incidentId = '' }) {
         ) : null}
 
         {page === 'authority' ? (
-          showAuthorityRoute ? (
+          status === 'loading' ? (
+            <LoadingSurface message="Loading authority workspace..." />
+          ) : showAuthorityRoute ? (
             <AuthorityScreen
               dashboard={dashboard}
               filters={authorityFilters}
@@ -892,7 +910,7 @@ export function PlatformShell({ page, incidentId = '' }) {
               onApprove={approveAuthority}
             />
           ) : (
-            <ProtectedMessage href="/" title="Authority access is restricted to verified accounts" />
+            <ProtectedMessage href="/feed" title="Authority access is restricted to verified accounts" />
           )
         ) : null}
 
@@ -915,7 +933,9 @@ export function PlatformShell({ page, incidentId = '' }) {
         ) : null}
 
         {page === 'profile' ? (
-          currentUser ? (
+          status === 'loading' ? (
+            <LoadingSurface message="Loading profile..." />
+          ) : currentUser ? (
             <ProfileScreen
               bundle={profileBundle}
               activityBundle={activityBundle}
@@ -934,7 +954,7 @@ export function PlatformShell({ page, incidentId = '' }) {
           incident={detailIncident}
           loading={loadingDetail}
           user={currentUser}
-          onClose={() => router.push('/')}
+          onClose={() => router.push('/feed')}
           onConfirm={() => handleVote('confirm')}
           onCommentCreate={createIncidentComment}
           onCommentDelete={deleteIncidentComment}
@@ -948,7 +968,8 @@ export function PlatformShell({ page, incidentId = '' }) {
 
 function HeaderLink({ href, children }) {
   const pathname = usePathname();
-  const active = pathname === href || (href === '/' && pathname?.startsWith('/incidents/'));
+  const active =
+    pathname === href || (href === '/feed' && pathname?.startsWith('/incidents/'));
   return (
     <Link href={href} className={`nav-link ${active ? 'nav-link-active' : ''}`}>
       {children}
@@ -958,10 +979,23 @@ function HeaderLink({ href, children }) {
 
 function StatusPill({ online, mode }) {
   return (
-    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-slate-300">
+    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-3 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-300 whitespace-nowrap">
+      <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-300' : 'bg-amber-300'}`} />
       <span className={online ? 'text-emerald-300' : 'text-amber-300'}>
         {online ? (mode === 'authenticated' ? 'Session live' : 'Online') : 'Offline'}
       </span>
+    </div>
+  );
+}
+
+function HeaderAccountPill({ label, name }) {
+  return (
+    <div className="hidden min-w-0 items-center gap-3 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2.5 text-slate-300 md:inline-flex">
+      <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400 whitespace-nowrap">
+        {label}
+      </div>
+      <span className="h-1.5 w-1.5 rounded-full bg-white/20" />
+      <div className="max-w-[10rem] truncate text-sm font-semibold text-white">{name}</div>
     </div>
   );
 }
@@ -1020,7 +1054,7 @@ function HeroStrip({ user, queueCount, incidentCount }) {
           Report fast. Verify faster. Keep Jamaica informed in real time.
         </h1>
         <p className="max-w-xl text-sm leading-7 text-slate-300 md:text-base">
-          JEIP now runs through Next.js with Auth.js sessions, route-handler APIs, Supabase-ready data wiring, and a Vercel deployment shape.
+          PostAlert runs through Next.js with Auth.js sessions, route-handler APIs, Supabase-ready data wiring, and a Vercel deployment shape.
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
@@ -1443,7 +1477,7 @@ function IncidentDetailPage({
           We could not find an incident for ID {incidentId}.
         </p>
         <div className="mt-6 flex justify-center">
-          <Link href="/" className="primary-button">
+          <Link href="/feed" className="primary-button">
             Back to feed
           </Link>
         </div>
@@ -1456,7 +1490,7 @@ function IncidentDetailPage({
       <div className="surface-card">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="max-w-3xl space-y-4">
-            <Link href="/" className="ghost-button inline-flex items-center gap-2">
+            <Link href="/feed" className="ghost-button inline-flex items-center gap-2">
               <ChevronLeft aria-hidden="true" className="h-4 w-4" />
               Back to feed
             </Link>
@@ -1840,6 +1874,175 @@ function PhotoLightbox({ photo, onClose }) {
   );
 }
 
+function CameraCaptureDialog({ open, onCapture, onClose }) {
+  const streamRef = useRef(null);
+  const videoRef = useRef(null);
+  const [cameraError, setCameraError] = useState('');
+  const [cameraReady, setCameraReady] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setCameraError('');
+      setCameraReady(false);
+      setCapturing(false);
+      return undefined;
+    }
+
+    let active = true;
+
+    async function startCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError('Live camera capture is not supported in this browser. Use Upload photo instead.');
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' }
+          }
+        });
+
+        if (!active) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          const playPromise = videoRef.current.play();
+          if (playPromise?.catch) {
+            playPromise.catch(() => {});
+          }
+        }
+        setCameraError('');
+      } catch {
+        setCameraError('Camera access is blocked or unavailable. Allow camera permission and try again.');
+      }
+    }
+
+    startCamera();
+
+    return () => {
+      active = false;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+    };
+  }, [open]);
+
+  async function handleCapture() {
+    if (!videoRef.current || !videoRef.current.videoWidth || !videoRef.current.videoHeight) {
+      setCameraError('Camera is still starting. Wait a moment and try again.');
+      return;
+    }
+
+    setCapturing(true);
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      setCameraError('Camera capture could not be completed in this browser.');
+      setCapturing(false);
+      return;
+    }
+
+    context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, 'image/jpeg', 0.92);
+    });
+
+    if (!blob) {
+      setCameraError('A photo could not be generated from the camera feed.');
+      setCapturing(false);
+      return;
+    }
+
+    const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    const photo = {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      dataUrl: await readFileAsDataUrl(file)
+    };
+
+    onCapture(photo);
+    setCapturing(false);
+    onClose();
+  }
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/90 px-4 py-8">
+      <button
+        aria-label="Close camera"
+        className="absolute inset-0"
+        onClick={onClose}
+        type="button"
+      />
+      <div className="relative z-10 flex w-full max-w-3xl flex-col gap-4 rounded-[30px] border border-white/10 bg-slate-950/95 p-4 shadow-[0_30px_90px_rgba(15,23,42,0.55)] sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="section-kicker">Live camera capture</div>
+            <h3 className="font-display text-2xl text-white">Frame the incident and take a photo</h3>
+          </div>
+          <button className="ghost-button" onClick={onClose} type="button">
+            Close
+          </button>
+        </div>
+
+        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-slate-900">
+          <video
+            ref={videoRef}
+            autoPlay
+            className="aspect-[4/3] w-full bg-slate-950 object-cover"
+            muted
+            onCanPlay={() => setCameraReady(true)}
+            playsInline
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-white/10 bg-white/5 px-4 py-3">
+          <div className="text-sm text-slate-300">
+            {cameraError
+              ? cameraError
+              : cameraReady
+                ? 'Camera is live. Capture a fresh photo for this incident.'
+                : 'Requesting camera access and starting the live preview.'}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button className="ghost-button" onClick={onClose} type="button">
+              Cancel
+            </button>
+            <button
+              className="primary-button"
+              disabled={!cameraReady || Boolean(cameraError) || capturing}
+              onClick={handleCapture}
+              type="button"
+            >
+              <Camera aria-hidden="true" className="h-4 w-4" />
+              {capturing ? 'Capturing' : 'Take photo'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function IncidentDrawer({
   incident,
   loading,
@@ -1886,15 +2089,159 @@ function IncidentDrawer({
   );
 }
 
+function AuthExperience({ children, currentUser, flash, onContinue, onSignOut }) {
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-[var(--canvas)] text-slate-950">
+      <div className="app-grid pointer-events-none absolute inset-0 opacity-35" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.12),transparent_28%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.12),transparent_24%)]" />
+
+      <main className="relative mx-auto flex min-h-screen max-w-7xl flex-col px-4 pb-12 pt-6 sm:px-6 lg:px-8">
+        <header className="flex flex-wrap items-center justify-between gap-4 py-4">
+          <div className="flex items-center gap-4">
+            <Link href="/" className="brand-mark">
+              <RadioTower aria-hidden="true" className="h-5 w-5" />
+            </Link>
+            <div>
+              <p className="font-display text-xl tracking-[0.08em] text-slate-950 sm:tracking-[0.12em]">
+                PostAlert
+              </p>
+              <p className="text-xs uppercase tracking-[0.28em] text-slate-500">
+                Secure account access
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-900/10 bg-white/65 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-800 backdrop-blur transition hover:bg-white"
+            >
+              <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+              Back home
+            </Link>
+            {currentUser ? (
+              <>
+                <button
+                  className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-slate-900"
+                  onClick={onContinue}
+                  type="button"
+                >
+                  Continue to platform
+                  <ChevronRight aria-hidden="true" className="h-4 w-4" />
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-900/10 bg-white/65 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-800 backdrop-blur transition hover:bg-white"
+                  onClick={onSignOut}
+                  type="button"
+                >
+                  Sign out
+                </button>
+              </>
+            ) : null}
+          </div>
+        </header>
+
+        {flash ? <FlashBanner flash={flash} /> : null}
+
+        <section className="grid flex-1 gap-8 py-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:py-14">
+          <div className="space-y-6">
+            <div className="space-y-5">
+              <div className="text-xs font-semibold uppercase tracking-[0.34em] text-slate-500">
+                Secure entry to the live network
+              </div>
+              <h1 className="font-display text-[clamp(3.6rem,8vw,6.7rem)] leading-[0.88] tracking-[-0.08em] text-slate-950">
+                Enter the
+                <span className="block">incident</span>
+                <span className="block text-amber-500">response loop.</span>
+              </h1>
+              <p className="max-w-xl text-lg leading-9 text-slate-600">
+                Create a citizen account to report and verify incidents, or use a verified authority profile to manage response actions and operational visibility.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <AuthFeatureCard
+                caption="Citizens can report incidents, attach evidence, and help verify what is real."
+                icon={TriangleAlert}
+                title="Citizen reporting"
+              />
+              <AuthFeatureCard
+                caption="Verified authority users can review, respond, resolve, and coordinate faster."
+                icon={ShieldCheck}
+                title="Authority tools"
+              />
+              <AuthFeatureCard
+                caption="Offline queueing and live map sync keep reporting useful in unstable conditions."
+                icon={Clock3}
+                title="Field ready"
+              />
+            </div>
+
+            <div className="rounded-[32px] border border-slate-900/10 bg-white/68 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex rounded-2xl bg-slate-950 p-3 text-amber-300">
+                  <MapPinned aria-hidden="true" className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    What happens after access
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-950">
+                    You move into the live feed, reporting flow, trends view, and protected profile tools.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[40px] border border-white/12 bg-[linear-gradient(165deg,#111826_0%,#172233_52%,#1f2a3d_100%)] p-4 shadow-[0_36px_90px_rgba(9,16,34,0.34)] sm:p-6">
+            {currentUser ? (
+              <div className="mb-5 rounded-[28px] border border-emerald-400/20 bg-emerald-500/10 p-4 text-emerald-100">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200/80">
+                      Session live
+                    </div>
+                    <div className="mt-2 text-lg font-semibold text-white">
+                      Signed in as {currentUser.name}
+                    </div>
+                  </div>
+                  <span className="rounded-full border border-emerald-400/20 bg-emerald-500/12 px-4 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                    {currentUser.role.replaceAll('_', ' ')}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            {children}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function AuthFeatureCard({ caption, icon: Icon, title }) {
+  return (
+    <div className="rounded-[28px] border border-slate-900/10 bg-white/68 p-4 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+      <div className="mb-6 inline-flex rounded-2xl bg-slate-950 p-3 text-amber-300">
+        <Icon aria-hidden="true" className="h-5 w-5" />
+      </div>
+      <div className="text-sm font-semibold text-slate-950">{title}</div>
+      <p className="mt-3 text-sm leading-6 text-slate-600">{caption}</p>
+    </div>
+  );
+}
+
 function AuthScreen({
   confirmation,
+  initialMode = 'login',
   onContinue,
   onRequestReset,
   onResetPassword,
   onSubmit,
   resetPreview
 }) {
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState(initialMode);
   const [resetOpen, setResetOpen] = useState(false);
   const [form, setForm] = useState({
     email: '',
@@ -1911,10 +2258,24 @@ function AuthScreen({
   });
 
   const formTitle = {
-    login: 'Sign in to JEIP',
+    login: 'Sign in to PostAlert',
     register: 'Create a citizen account',
     authority: 'Register as an authority user'
   };
+  const formCopy = {
+    login: 'Access your secure reporting workspace and continue into the live incident platform.',
+    register: 'Create a citizen profile to report incidents, add evidence, and follow updates in real time.',
+    authority: 'Register an authority account to unlock operational tools after administrator approval.'
+  };
+  const modePill = {
+    login: 'Returning user',
+    register: 'Citizen access',
+    authority: 'Authority access'
+  };
+
+  useEffect(() => {
+    setMode(normalizeAuthMode(initialMode));
+  }, [initialMode]);
 
   useEffect(() => {
     if (!resetPreview) {
@@ -1929,31 +2290,38 @@ function AuthScreen({
   }, [resetPreview]);
 
   return (
-    <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-      <div className="surface-card flex flex-col justify-between">
-        <div className="space-y-4">
-          <div className="section-kicker">Secure platform access</div>
-          <h2 className="font-display text-4xl text-white">{formTitle[mode]}</h2>
-          <p className="max-w-xl text-sm leading-7 text-slate-300">
-            Citizens can report and validate incidents. Verified authority accounts unlock the operational dashboard and response actions.
-          </p>
+    <section className="space-y-5">
+      <div className="rounded-[34px] border border-white/10 bg-white/5 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-3">
+            <div className="section-kicker">Secure platform access</div>
+            <h2 className="font-display text-4xl text-white">{formTitle[mode]}</h2>
+            <p className="max-w-2xl text-sm leading-7 text-slate-300">{formCopy[mode]}</p>
+          </div>
+          <div className="rounded-full border border-white/10 bg-slate-950/35 px-4 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-200">
+            {modePill[mode]}
+          </div>
         </div>
-      <div className="mt-8 flex flex-wrap gap-3">
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <button
             className={`toggle-button ${mode === 'login' ? 'toggle-button-active' : ''}`}
             onClick={() => setMode('login')}
+            type="button"
           >
             Sign in
           </button>
           <button
             className={`toggle-button ${mode === 'register' ? 'toggle-button-active' : ''}`}
             onClick={() => setMode('register')}
+            type="button"
           >
             Citizen
           </button>
           <button
             className={`toggle-button ${mode === 'authority' ? 'toggle-button-active' : ''}`}
             onClick={() => setMode('authority')}
+            type="button"
           >
             Authority
           </button>
@@ -2173,8 +2541,8 @@ function ReportWizard({ canPost, onSubmit, user }) {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
   const galleryInputRef = useRef(null);
-  const cameraInputRef = useRef(null);
   const [form, setForm] = useState({
     category: 'Crime',
     subcategory: CATEGORY_SUBCATEGORIES.Crime[0],
@@ -2188,18 +2556,41 @@ function ReportWizard({ canPost, onSubmit, user }) {
   });
   const manualParishFallback =
     PARISHES.find((parish) => form.address.includes(parish)) || user?.parish || 'Kingston';
+  const photoLimitReached = form.photos.length >= 3;
+
+  function appendPhotos(nextPhotos) {
+    if (!nextPhotos.length) {
+      return;
+    }
+
+    let limitReached = false;
+    setForm((current) => {
+      const remainingSlots = Math.max(0, 3 - current.photos.length);
+      if (!remainingSlots) {
+        limitReached = true;
+        return current;
+      }
+
+      const photosToAdd = nextPhotos.slice(0, remainingSlots);
+      if (photosToAdd.length < nextPhotos.length) {
+        limitReached = true;
+      }
+
+      return {
+        ...current,
+        photos: [...current.photos, ...photosToAdd]
+      };
+    });
+
+    setError(limitReached ? 'You can upload up to 3 photos per report.' : '');
+  }
 
   async function handleFiles(fileList) {
     const selectedFiles = Array.from(fileList || []);
     if (!selectedFiles.length) {
       return;
     }
-    const remainingSlots = Math.max(0, 3 - form.photos.length);
-    if (!remainingSlots) {
-      setError('You can upload up to 3 photos per report.');
-      return;
-    }
-    const files = selectedFiles.slice(0, remainingSlots);
+    const files = selectedFiles.slice(0, 3);
     const invalid = files.find((file) => !['image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024);
     if (invalid) {
       setError('Only JPEG or PNG files up to 5MB are allowed.');
@@ -2213,13 +2604,16 @@ function ReportWizard({ canPost, onSubmit, user }) {
         dataUrl: await readFileAsDataUrl(file)
       }))
     );
-    setForm((current) => ({ ...current, photos: [...current.photos, ...photos].slice(0, 3) }));
-    setError(selectedFiles.length > remainingSlots ? 'You can upload up to 3 photos per report.' : '');
+    appendPhotos(photos);
   }
 
   function handlePhotoInputChange(event) {
     handleFiles(event.target.files);
     event.target.value = '';
+  }
+
+  function handleCameraCapture(photo) {
+    appendPhotos([photo]);
   }
 
   function requestLocation() {
@@ -2426,7 +2820,8 @@ function ReportWizard({ canPost, onSubmit, user }) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
                   type="button"
-                  className="ghost-button justify-center"
+                  className="ghost-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={photoLimitReached}
                   onClick={() => galleryInputRef.current?.click()}
                 >
                   <Upload aria-hidden="true" className="h-4 w-4" />
@@ -2434,8 +2829,9 @@ function ReportWizard({ canPost, onSubmit, user }) {
                 </button>
                 <button
                   type="button"
-                  className="ghost-button justify-center"
-                  onClick={() => cameraInputRef.current?.click()}
+                  className="ghost-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={photoLimitReached}
+                  onClick={() => setCameraOpen(true)}
                 >
                   <Camera aria-hidden="true" className="h-4 w-4" />
                   Use camera
@@ -2449,16 +2845,8 @@ function ReportWizard({ canPost, onSubmit, user }) {
                 multiple
                 onChange={handlePhotoInputChange}
               />
-              <input
-                ref={cameraInputRef}
-                className="hidden"
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handlePhotoInputChange}
-              />
               <div className="text-xs text-slate-400">
-                JPEG or PNG up to 5MB each. On supported mobile devices, camera capture opens directly from this button.
+                JPEG or PNG up to 5MB each. Use camera opens a live camera view for a fresh incident photo.
               </div>
             </label>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -2507,6 +2895,12 @@ function ReportWizard({ canPost, onSubmit, user }) {
       ) : null}
 
       {error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</div> : null}
+
+      <CameraCaptureDialog
+        onCapture={handleCameraCapture}
+        onClose={() => setCameraOpen(false)}
+        open={cameraOpen}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" className="ghost-button" onClick={() => setStep((current) => Math.max(current - 1, 1))}>
@@ -2667,91 +3061,354 @@ function TrendsScreen({
   onChangeParish,
   onChangePeriod
 }) {
-  const categories = Object.entries(trendsBundle.counts);
+  const periodOptions = [
+    { value: '24h', label: 'Past 24 hours', shortLabel: '24h' },
+    { value: '7d', label: 'Past 7 days', shortLabel: '7d' },
+    { value: '30d', label: 'Past 30 days', shortLabel: '30d' }
+  ];
+  const categories = Object.entries(trendsBundle.counts).sort((left, right) => right[1] - left[1]);
   const highestCount = Math.max(...categories.map(([, count]) => count), 1);
+  const hotspotRanking = [...trendsBundle.heatmap].sort((left, right) => right.weight - left.weight);
+  const highestHotspotWeight = Math.max(...hotspotRanking.map((point) => point.weight), 1);
+  const topCategory = trendsBundle.top[0] || null;
+  const leadHotspot = hotspotRanking[0] || null;
+  const selectedPeriodLabel =
+    periodOptions.find((entry) => entry.value === trendsBundle.period)?.label || 'Selected period';
+  const activeRangeLabel =
+    trendsBundle.dateFrom || trendsBundle.dateTo
+      ? `${trendsBundle.dateFrom || 'Start'} -> ${trendsBundle.dateTo || 'Today'}`
+      : selectedPeriodLabel;
+  const dominantShare = topCategory
+    ? Math.round((topCategory.count / Math.max(trendsBundle.total, 1)) * 100)
+    : 0;
+  const overviewCopy = trendsBundle.total
+    ? `${trendsBundle.total} incidents are shaping this view ${trendsBundle.parish ? `for ${trendsBundle.parish}` : 'across Jamaica'}. ${
+        topCategory
+          ? `${topCategory.category} leads the mix at ${dominantShare}% of reports.`
+          : 'Category leadership will appear as more reports are recorded.'
+      } ${
+        leadHotspot
+          ? `${leadHotspot.parish} is carrying the strongest hotspot signal right now.`
+          : 'Hotspot ranking will sharpen as more incidents enter the selected window.'
+      }`
+    : 'No incidents match the current filters yet. Expand the parish or date range to widen the trend signal.';
+  const insightChips = [
+    trendsBundle.parish ? `${trendsBundle.parish} focus` : 'All-parish view',
+    activeRangeLabel,
+    trendsBundle.total >= 3 ? 'Confidence threshold met' : 'Confidence still building'
+  ];
 
   return (
     <section className="space-y-6">
-      <div className="surface-card">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="hero-panel xl:grid-cols-[1.15fr_0.85fr] xl:items-start">
+        <div className="space-y-5">
           <div>
             <div className="section-kicker">Historical trends</div>
-            <h2 className="font-display text-3xl text-white">Safety patterns and hot spots</h2>
+            <h2 className="font-display text-3xl text-white md:text-4xl">Safety patterns and hot spots</h2>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">{overviewCopy}</p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <select className="field" value={trendsBundle.period} onChange={(event) => onChangePeriod(event.target.value)}>
-              <option value="24h">24 hours</option>
-              <option value="7d">7 days</option>
-              <option value="30d">30 days</option>
-            </select>
+          <div className="flex flex-wrap gap-2">
+            {insightChips.map((chip) => (
+              <span
+                key={chip}
+                className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-200"
+              >
+                {chip}
+              </span>
+            ))}
+          </div>
+          <div className="rounded-[28px] border border-white/10 bg-white/5 p-4">
+            <div className="section-label">Reading note</div>
+            <p className="mt-3 text-sm leading-7 text-slate-300">
+              Resolved incidents remain in this analysis so the trends page can preserve historical hotspot pressure instead of only showing the live board.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+          <TrendSignalCard
+            caption={selectedPeriodLabel}
+            icon={RadioTower}
+            label="Selected window"
+            tone="amber"
+            value={String(trendsBundle.total)}
+          />
+          <TrendSignalCard
+            caption={topCategory ? `${dominantShare}% of current reports` : 'Awaiting stronger category signal'}
+            icon={TriangleAlert}
+            label="Dominant category"
+            tone="rose"
+            value={topCategory?.category || 'No leader yet'}
+          />
+          <TrendSignalCard
+            caption={leadHotspot ? `Weighted intensity ${leadHotspot.weight}` : 'No hotspot leader yet'}
+            icon={MapPinned}
+            label="Strongest hotspot"
+            tone="sky"
+            value={leadHotspot?.parish || 'Insufficient data'}
+          />
+        </div>
+      </div>
+
+      <div className="surface-card space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="section-label">Filter deck</div>
+            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
+              Switch the time window, narrow to a parish, or pin a custom date range to inspect how pressure shifts across Jamaica.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {periodOptions.map((option) => (
+              <button
+                key={option.value}
+                className={`chip-button !w-auto px-4 ${trendsBundle.period === option.value ? 'chip-button-active' : ''}`}
+                onClick={() => onChangePeriod(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_repeat(3,minmax(0,0.8fr))]">
+          <div className="rounded-[24px] border border-white/10 bg-white/5 px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Active reading</div>
+            <div className="mt-2 text-sm text-white">{activeRangeLabel}</div>
+            <div className="mt-1 text-sm text-slate-400">
+              {trendsBundle.parish ? `${trendsBundle.parish} parish filter applied.` : 'Scanning all parishes in the current dataset.'}
+            </div>
+          </div>
+          <label className="space-y-2">
+            <span className="section-label">Parish</span>
             <select className="field" value={trendsBundle.parish} onChange={(event) => onChangeParish(event.target.value)}>
               <option value="">All parishes</option>
               {PARISHES.map((parish) => (
                 <option key={parish} value={parish}>{parish}</option>
               ))}
             </select>
+          </label>
+          <label className="space-y-2">
+            <span className="section-label">Date from</span>
             <input
               className="field"
               type="date"
               value={trendsBundle.dateFrom}
               onChange={(event) => onChangeDateFrom(event.target.value)}
             />
+          </label>
+          <label className="space-y-2">
+            <span className="section-label">Date to</span>
             <input
               className="field"
               type="date"
               value={trendsBundle.dateTo}
               onChange={(event) => onChangeDateTo(event.target.value)}
             />
-          </div>
+          </label>
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard label="24h incidents" value={String(trendsBundle.summary['24h'])} />
-        <SummaryCard label="7d incidents" value={String(trendsBundle.summary['7d'])} />
-        <SummaryCard label="30d incidents" value={String(trendsBundle.summary['30d'])} />
+        {periodOptions.map((option) => (
+          <TrendWindowCard
+            key={option.value}
+            active={trendsBundle.period === option.value}
+            caption={option.value === '24h' ? 'Immediate signal watch' : option.value === '7d' ? 'Operational weekly rhythm' : 'Longer-running pressure line'}
+            label={option.label}
+            value={String(trendsBundle.summary[option.value])}
+          />
+        ))}
       </div>
 
       {trendsBundle.total < 3 ? (
-        <div className="surface-card text-sm text-slate-300">
+        <div className="rounded-[28px] border border-amber-400/20 bg-amber-400/10 px-5 py-4 text-sm text-amber-100">
           Minimum data threshold not met yet. Add at least three incidents in the selected period for stronger trend insight.
         </div>
-      ) : (
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="surface-card space-y-4">
-            <div className="section-label">Incident counts by category</div>
-            {categories.map(([category, count]) => (
-              <div key={category} className="space-y-2">
-                <div className="flex items-center justify-between text-sm text-slate-300">
-                  <span>{category}</span>
-                  <span>{count}</span>
-                </div>
-                <div className="h-3 rounded-full bg-white/5">
-                  <div className="h-3 rounded-full bg-amber-400" style={{ width: `${(count / highestCount) * 100}%` }} />
-                </div>
+      ) : null}
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="space-y-6">
+          <div className="surface-card space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="section-label">Category pressure</div>
+                <p className="mt-2 text-sm leading-7 text-slate-300">
+                  Ranked incident volume for the active window, showing where report intensity is concentrating first.
+                </p>
               </div>
-            ))}
-          </div>
-          <div className="space-y-6">
-            <div className="surface-card">
-              <div className="section-label mb-4">Heat map</div>
-              <HeatGrid points={trendsBundle.heatmap} />
+              {topCategory ? (
+                <div className="rounded-full border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">
+                  {dominantShare}% concentration
+                </div>
+              ) : null}
             </div>
-            <div className="surface-card">
-              <div className="section-label mb-4">Top 5 categories</div>
-              <div className="space-y-3">
-                {trendsBundle.top.map((entry, index) => (
-                  <div key={entry.category} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <span className="text-white">{index + 1}. {entry.category}</span>
-                    <span className="text-slate-400">{entry.count}</span>
+
+            {categories.length ? (
+              <div className="space-y-4">
+                {categories.map(([category, count]) => (
+                  <div key={category} className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <CategoryBadge category={category} />
+                      <div className="text-right">
+                        <div className="text-lg font-semibold text-white">{count}</div>
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                          {Math.round((count / Math.max(trendsBundle.total, 1)) * 100)}% of reports
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 h-3 rounded-full bg-white/5">
+                      <div
+                        className="h-3 rounded-full bg-gradient-to-r from-amber-300 via-amber-400 to-rose-400"
+                        style={{ width: `${(count / highestCount) * 100}%` }}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
+            ) : (
+              <div className="rounded-[24px] border border-dashed border-white/10 bg-white/5 px-4 py-6 text-sm text-slate-400">
+                No category counts are available for the current filters yet.
+              </div>
+            )}
+          </div>
+
+          <div className="surface-card">
+            <div className="section-label mb-4">Category stack</div>
+            {trendsBundle.top.length ? (
+              <div className="space-y-3">
+                {trendsBundle.top.map((entry, index) => (
+                  <div key={entry.category} className="flex items-center justify-between rounded-[24px] border border-white/10 bg-white/5 px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-xs font-semibold text-slate-200">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <div className="font-semibold text-white">{entry.category}</div>
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Top reported category</div>
+                      </div>
+                    </div>
+                    <div className="text-sm text-slate-300">{entry.count} reports</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-[24px] border border-dashed border-white/10 bg-white/5 px-4 py-6 text-sm text-slate-400">
+                The ranking will appear once incidents are available in the selected window.
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        <div className="space-y-6">
+          <div className="surface-card space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="section-label">Hotspot radar</div>
+                <p className="mt-2 text-sm leading-7 text-slate-300">
+                  Severity-weighted parish pressure showing where incident concentration is persisting the most.
+                </p>
+              </div>
+              {leadHotspot ? (
+                <div className="rounded-full border border-sky-400/20 bg-sky-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-sky-100">
+                  Lead hotspot: {leadHotspot.parish}
+                </div>
+              ) : null}
+            </div>
+
+            <HeatGrid points={trendsBundle.heatmap} />
+
+            <div className="flex items-center justify-between text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <span>Lower signal</span>
+              <span>Higher signal</span>
+            </div>
+          </div>
+
+          <div className="surface-card">
+            <div className="section-label mb-4">Hotspot leaderboard</div>
+            {hotspotRanking.length ? (
+              <div className="space-y-3">
+                {hotspotRanking.slice(0, 5).map((point, index) => (
+                  <div key={point.parish} className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-white">{index + 1}. {point.parish}</div>
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Weighted hotspot signal</div>
+                      </div>
+                      <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">
+                        {point.weight}
+                      </div>
+                    </div>
+                    <div className="mt-4 h-2 rounded-full bg-white/5">
+                      <div
+                        className="h-2 rounded-full bg-gradient-to-r from-sky-300 via-amber-300 to-rose-400"
+                        style={{ width: `${(point.weight / highestHotspotWeight) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-[24px] border border-dashed border-white/10 bg-white/5 px-4 py-6 text-sm text-slate-400">
+                Hotspot ranking will appear once incidents are available in the selected window.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </section>
+  );
+}
+
+function TrendSignalCard({ caption, icon: Icon, label, tone = 'amber', value }) {
+  const tones = {
+    amber: 'border-amber-400/20 bg-amber-400/10 text-amber-100',
+    rose: 'border-rose-400/20 bg-rose-400/10 text-rose-100',
+    sky: 'border-sky-400/20 bg-sky-400/10 text-sky-100'
+  };
+
+  return (
+    <div className={`rounded-[28px] border p-4 ${tones[tone] || tones.amber}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] opacity-80">{label}</div>
+          <div className="mt-3 text-xl font-semibold text-white">{value}</div>
+        </div>
+        <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-slate-950/30">
+          <Icon aria-hidden="true" className="h-5 w-5 text-white" />
+        </span>
+      </div>
+      <div className="mt-4 text-sm leading-6 text-slate-200/90">{caption}</div>
+    </div>
+  );
+}
+
+function TrendWindowCard({ active, caption, label, value }) {
+  return (
+    <div
+      className={`rounded-[28px] border p-4 transition ${
+        active
+          ? 'border-amber-400/45 bg-[linear-gradient(160deg,rgba(38,26,8,0.98),rgba(17,24,38,0.96))] shadow-[0_20px_48px_rgba(120,78,10,0.26)]'
+          : 'border-slate-800/20 bg-[linear-gradient(160deg,rgba(17,24,38,0.96),rgba(23,34,51,0.92))] shadow-[0_18px_40px_rgba(15,23,42,0.18)]'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className={`text-xs uppercase tracking-[0.18em] ${active ? 'text-amber-200' : 'text-slate-300'}`}>{label}</div>
+          <div className={`mt-3 text-2xl font-semibold ${active ? 'text-amber-50' : 'text-white'}`}>{value}</div>
+        </div>
+        <span
+          className={`inline-flex items-center rounded-full px-3 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.18em] ${
+            active
+              ? 'bg-amber-300 text-slate-950 shadow-[0_10px_24px_rgba(245,158,11,0.3)]'
+              : 'border border-white/12 bg-slate-950/35 text-slate-200'
+          }`}
+        >
+          {active ? 'Live view' : 'Reference'}
+        </span>
+      </div>
+      <div className={`mt-4 text-sm leading-6 ${active ? 'text-amber-100/90' : 'text-slate-200'}`}>{caption}</div>
+    </div>
   );
 }
 
@@ -2991,6 +3648,10 @@ function ProtectedMessage({ href, title }) {
   );
 }
 
+function LoadingSurface({ message }) {
+  return <div className="surface-card text-sm text-slate-400">{message}</div>;
+}
+
 function SummaryCard({ label, value }) {
   return (
     <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
@@ -3083,6 +3744,31 @@ function writeToStorage(key, value) {
 
 function incidentDetailPath(incidentId) {
   return `/incidents/${incidentId}`;
+}
+
+function normalizeAuthMode(value) {
+  return ['login', 'register', 'authority'].includes(value) ? value : 'login';
+}
+
+function normalizeCallbackPath(value) {
+  if (!value) {
+    return '/feed';
+  }
+
+  if (value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/auth')) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value);
+    const path = `${url.pathname}${url.search}${url.hash}`;
+    if (path.startsWith('/auth')) {
+      return '/feed';
+    }
+    return path.startsWith('/') ? path : '/feed';
+  } catch {
+    return '/feed';
+  }
 }
 
 function openIncidentPage(incidentId, router) {

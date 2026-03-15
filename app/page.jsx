@@ -1,5 +1,5 @@
-import { PlatformShell } from '../components/platform-shell.jsx';
+import { LandingPage } from '../components/landing-page.jsx';
 
-export default function FeedPage() {
-  return <PlatformShell page="feed" />;
+export default function HomePage() {
+  return <LandingPage />;
 }
