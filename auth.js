@@ -1,16 +1,11 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 
+import authConfig from './auth.config.js';
 import { getSessionUserByEmail, verifyCredentials } from './lib/platform-store.js';
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  trustHost: true,
-  session: {
-    strategy: 'jwt'
-  },
-  pages: {
-    signIn: '/auth'
-  },
+  ...authConfig,
   providers: [
     Credentials({
       credentials: {
@@ -27,20 +22,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     })
   ],
   callbacks: {
+    ...authConfig.callbacks,
     async jwt({ token, user, trigger }) {
-      if (user) {
-        token.user = user;
-      }
+      token = await authConfig.callbacks.jwt({ token, user });
 
       if (trigger === 'update' && token.email) {
         token.user = await getSessionUserByEmail(token.email);
       }
 
       return token;
-    },
-    async session({ session, token }) {
-      session.user = token.user;
-      return session;
     }
   }
 });
