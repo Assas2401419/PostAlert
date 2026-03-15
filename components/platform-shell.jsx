@@ -60,7 +60,7 @@ import { MapboxLocationPicker } from './mapbox-location-picker.jsx';
 
 const INCIDENT_CACHE_KEY = 'postalert_cached_incidents';
 const MAPBOX_ENABLED = Boolean(process.env.NEXT_PUBLIC_MAPBOX_TOKEN);
-const PLATFORM_BROADCAST_CHANNEL_NAME = 'jeip-platform';
+const PLATFORM_BROADCAST_CHANNEL_NAME = 'postalert-platform';
 const REPORT_QUEUE_KEY = 'postalert_report_queue';
 const AUTHORITY_ACTION_OPTIONS = ['verify', 'respond', 'resolve', 'dismiss'];
 
@@ -293,6 +293,24 @@ export function PlatformShell({ page, incidentId = '' }) {
       }
     };
   }, [page, selectedIncidentId, status, trendsBundle.period, trendsBundle.parish, trendsBundle.dateFrom, trendsBundle.dateTo]);
+
+  // Polling fallback for real-time updates (every 30 seconds)
+  useEffect(() => {
+    if (page !== 'feed' && page !== 'authority') {
+      return undefined;
+    }
+
+    const pollInterval = setInterval(() => {
+      startTransition(() => {
+        loadIncidents(1, false, true);
+        if (page === 'authority') {
+          loadAuthorityData();
+        }
+      });
+    }, 30000);
+
+    return () => clearInterval(pollInterval);
+  }, [page]);
 
   useEffect(() => {
     const target = listEndRef.current;

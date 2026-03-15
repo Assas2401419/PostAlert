@@ -135,3 +135,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   is_read BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+
+-- Enable Realtime for incidents table
+ALTER PUBLICATION supabase_realtime ADD TABLE incidents;
