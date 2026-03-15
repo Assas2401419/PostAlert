@@ -1,6 +1,6 @@
 # Product Overview
 
-JEIP (Jamaica Emergency Intelligence Platform) is a crowdsourced, real-time incident reporting platform for Jamaica. It combines community-driven reporting (similar to Waze/Citizen) with emergency management capabilities.
+Postalert is a crowdsourced, real-time incident reporting platform for Jamaica. It combines community-driven reporting (similar to Waze/Citizen) with emergency management capabilities.
 
 ## Core Purpose
 - Enable citizens (16+) to report incidents with photos, GPS location, and severity ratings

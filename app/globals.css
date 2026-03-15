@@ -253,6 +253,58 @@ h6,
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
 }
 
+.field-error {
+  border-color: rgba(244, 63, 94, 0.46);
+  box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.12);
+}
+
+.field-error:focus {
+  border-color: rgba(251, 113, 133, 0.54);
+  box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.16);
+}
+
+.field-error-note {
+  border-radius: 1rem;
+  border: 1px solid rgba(244, 63, 94, 0.24);
+  background: rgba(244, 63, 94, 0.12);
+  padding: 0.72rem 0.9rem;
+  color: #fecdd3;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field .field {
+  padding-right: 6.25rem;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.8rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(15, 23, 38, 0.88);
+  padding: 0.42rem 0.68rem;
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.password-toggle:hover {
+  background: rgba(30, 41, 59, 0.94);
+}
+
 .field option {
   color: #111826;
 }

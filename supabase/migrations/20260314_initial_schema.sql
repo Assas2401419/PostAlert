@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
-CREATE TABLE IF NOT EXISTS jeip_users (
+CREATE TABLE IF NOT EXISTS postalert_users (
   id UUID PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
@@ -21,12 +21,12 @@ CREATE TABLE IF NOT EXISTS jeip_users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS jeip_users_email_idx ON jeip_users (email);
-CREATE INDEX IF NOT EXISTS jeip_users_role_idx ON jeip_users (role);
+CREATE INDEX IF NOT EXISTS postalert_users_email_idx ON postalert_users (email);
+CREATE INDEX IF NOT EXISTS postalert_users_role_idx ON postalert_users (role);
 
 CREATE TABLE IF NOT EXISTS incidents (
   id UUID PRIMARY KEY,
-  reporter_id UUID NOT NULL REFERENCES jeip_users(id),
+  reporter_id UUID NOT NULL REFERENCES postalert_users(id),
   category TEXT NOT NULL,
   subcategory TEXT NOT NULL,
   title TEXT NOT NULL,
@@ -57,7 +57,7 @@ CREATE INDEX IF NOT EXISTS incidents_created_at_idx ON incidents (created_at DES
 CREATE TABLE IF NOT EXISTS confirmations (
   id UUID PRIMARY KEY,
   incident_id UUID NOT NULL REFERENCES incidents(id),
-  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  user_id UUID NOT NULL REFERENCES postalert_users(id),
   action_type TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (incident_id, user_id)
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS confirmations (
 
 CREATE TABLE IF NOT EXISTS strikes (
   id UUID PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  user_id UUID NOT NULL REFERENCES postalert_users(id),
   reason TEXT NOT NULL,
   issued_by UUID,
   status TEXT NOT NULL DEFAULT 'active',
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS strikes (
 
 CREATE TABLE IF NOT EXISTS device_tokens (
   id UUID PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  user_id UUID NOT NULL REFERENCES postalert_users(id),
   token TEXT NOT NULL,
   platform TEXT NOT NULL DEFAULT 'web',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS device_tokens (
 CREATE TABLE IF NOT EXISTS moderation_appeals (
   id UUID PRIMARY KEY,
   strike_id UUID NOT NULL REFERENCES strikes(id),
-  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  user_id UUID NOT NULL REFERENCES postalert_users(id),
   message TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'submitted',
   reviewed_at TIMESTAMPTZ,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS moderation_appeals (
 CREATE TABLE IF NOT EXISTS comments (
   id UUID PRIMARY KEY,
   incident_id UUID NOT NULL REFERENCES incidents(id),
-  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  user_id UUID NOT NULL REFERENCES postalert_users(id),
   message TEXT NOT NULL,
   deleted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -106,7 +106,7 @@ CREATE INDEX IF NOT EXISTS comments_incident_created_idx ON comments (incident_i
 
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
   id UUID PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  user_id UUID NOT NULL REFERENCES postalert_users(id),
   token_hash TEXT NOT NULL UNIQUE,
   expires_at TIMESTAMPTZ NOT NULL,
   used_at TIMESTAMPTZ,
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS pending_photo_scans (
 
 CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  user_id UUID NOT NULL REFERENCES postalert_users(id),
   incident_id UUID REFERENCES incidents(id),
   title TEXT NOT NULL,
   body TEXT NOT NULL,

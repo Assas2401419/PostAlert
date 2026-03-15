@@ -485,18 +485,18 @@ deleteComment(commentId: string, requesterId: string): Promise<void>
 
 ```mermaid
 erDiagram
-    jeip_users ||--o{ incidents : reports
-    jeip_users ||--o{ confirmations : makes
-    jeip_users ||--o{ strikes : receives
-    jeip_users ||--o{ device_tokens : registers
-    jeip_users ||--o{ notifications : receives
-    jeip_users ||--o{ moderation_appeals : submits
+    postalert_users ||--o{ incidents : reports
+    postalert_users ||--o{ confirmations : makes
+    postalert_users ||--o{ strikes : receives
+    postalert_users ||--o{ device_tokens : registers
+    postalert_users ||--o{ notifications : receives
+    postalert_users ||--o{ moderation_appeals : submits
     incidents ||--o{ confirmations : has
     incidents ||--o{ pending_photo_scans : has
     incidents ||--o{ notifications : triggers
     strikes ||--o{ moderation_appeals : has
 
-    jeip_users {
+    postalert_users {
         uuid id PK
         text email UK
         text password_hash

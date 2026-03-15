@@ -16,7 +16,7 @@ import { haversineKm, severityIndex } from './utils.js';
 
 const NotificationContext = createContext(null);
 
-const BROADCAST_CHANNEL_NAME = 'jeip-platform';
+const BROADCAST_CHANNEL_NAME = 'postalert-platform';
 const EXIT_ANIMATION_DURATION = 300;
 const MAX_VISIBLE_NOTIFICATIONS = 4;
 const NOTIFICATION_DISPLAY_DURATION = 8000;

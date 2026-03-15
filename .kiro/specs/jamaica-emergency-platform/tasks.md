@@ -1,4 +1,4 @@
-# Implementation Plan: Jamaica Emergency Intelligence Platform (JEIP)
+# Implementation Plan: Postalert
 
 ## Overview
 
@@ -23,7 +23,7 @@ This implementation plan now reflects the delivered stack:
 - [x] 2. Supabase Data Layer
   - [x] 2.1 Create Supabase schema migration for users, incidents, confirmations, strikes, device tokens, and moderation appeals
   - [x] 2.2 Extend the schema for notifications, pending photo scans, and geographic coordinates
-  - [x] 2.3 Implement a Supabase persistence adapter behind the JEIP business logic
+  - [x] 2.3 Implement a Supabase persistence adapter behind the Postalert business logic
   - [x] 2.4 Preserve a local JSON fallback for development without Supabase credentials
 
 - [x] 3. Authentication and Access Control

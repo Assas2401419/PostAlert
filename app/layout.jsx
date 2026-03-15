@@ -6,8 +6,8 @@ import { Providers } from '../components/providers.jsx';
 import './globals.css';
 
 export const metadata = {
-  title: 'JEIP',
-  description: 'Jamaica Emergency Intelligence Platform'
+  title: 'Postalert',
+  description: 'Postalert - Real-time incident reporting platform for Jamaica'
 };
 
 export default function RootLayout({ children }) {
@@ -18,7 +18,7 @@ export default function RootLayout({ children }) {
           <Suspense
             fallback={
               <div className="app-loading">
-                <span className="section-kicker">Launching JEIP</span>
+                <span className="section-kicker">Launching Postalert</span>
                 <h1 className="font-display">Syncing emergency intelligence.</h1>
               </div>
             }

@@ -1,8 +1,8 @@
-# Design Document: Jamaica Emergency Intelligence Platform (JEIP)
+# Design Document: Postalert
 
 ## Overview
 
-JEIP is a real-time crowdsourced emergency reporting platform for Jamaica. The application is now designed around a unified Next.js stack so the web interface, API surface, authentication layer, and deployment model all live in one project.
+Postalert is a real-time crowdsourced emergency reporting platform for Jamaica. The application is now designed around a unified Next.js stack so the web interface, API surface, authentication layer, and deployment model all live in one project.
 
 ### Product Goals
 
@@ -37,7 +37,7 @@ graph TB
         APP[Next.js App Router]
         AUTH[Auth.js]
         API[Route Handlers]
-        STORE[JEIP Service Layer]
+        STORE[Postalert Service Layer]
     end
 
     subgraph Data
@@ -87,7 +87,7 @@ graph TB
 
 ### Core Business Module
 
-`lib/platform-store.js` contains the JEIP domain rules:
+`lib/platform-store.js` contains the Postalert domain rules:
 
 - user registration and password verification
 - strike calculation and posting restrictions
@@ -98,18 +98,18 @@ graph TB
 
 ### Persistence Strategy
 
-`lib/supabase-persistence.js` adapts the in-memory JEIP domain model to Supabase tables:
+`lib/supabase-persistence.js` adapts the in-memory Postalert domain model to Supabase tables:
 
 - reads users, incidents, confirmations, strikes, notifications, and moderation records
-- maps Supabase rows to the shared JEIP object model
+- maps Supabase rows to the shared Postalert object model
 - upserts mutated records back to Supabase after each write workflow
-- seeds Supabase from the default JEIP dataset when an empty database is detected
+- seeds Supabase from the default Postalert dataset when an empty database is detected
 
 If Supabase credentials are not present, the same service layer falls back to `data/local-db.json` for local development.
 
 ## Authentication Model
 
-- Auth.js uses a credentials provider backed by JEIP user records
+- Auth.js uses a credentials provider backed by Postalert user records
 - passwords are hashed with `bcryptjs`
 - authenticated sessions use JWT strategy
 - protected routes are enforced through `proxy.js`
@@ -133,7 +133,7 @@ If Supabase credentials are not present, the same service layer falls back to `d
 
 ### Primary Tables
 
-- `jeip_users`
+- `postalert_users`
 - `incidents`
 - `confirmations`
 - `strikes`

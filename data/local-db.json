@@ -3,13 +3,13 @@
   "users": [
     {
       "id": "9777e7e2-4366-4720-91c2-2d8cb9b5eed5",
-      "email": "admin@jeip.gov.jm",
+      "email": "admin@postalert.gov.jm",
       "passwordHash": "$2b$10$ideEzspwy7bCq8dTrf5Abu3z9NXDnjD7le3U15H8t3sYvlDOhMaGK",
-      "name": "JEIP Admin",
+      "name": "Postalert Admin",
       "parish": "Kingston",
       "role": "admin",
       "verified": true,
-      "organizationName": "JEIP Operations",
+      "organizationName": "Postalert Operations",
       "badgeNumber": "ADM-001",
       "createdAt": "2026-03-15T07:53:17.971Z",
       "reputationScore": 92,
@@ -197,7 +197,7 @@
           "id": "37504151-2395-4e47-a631-eb1f5cd2814e",
           "incidentId": "57ab8455-801d-4ae6-b8f7-692e4eb9703a",
           "authorityId": "9777e7e2-4366-4720-91c2-2d8cb9b5eed5",
-          "authorityName": "JEIP Admin",
+          "authorityName": "Postalert Admin",
           "action": "resolve",
           "notes": "",
           "createdAt": "2026-03-15T08:10:59.922Z"
@@ -234,7 +234,7 @@
           "id": "b3b5d7a7-918f-418f-89a4-930d873e5ddb",
           "incidentId": "b3b43b2d-2853-44f0-b0e8-f7cb4b19b352",
           "authorityId": "9777e7e2-4366-4720-91c2-2d8cb9b5eed5",
-          "authorityName": "JEIP Admin",
+          "authorityName": "Postalert Admin",
           "action": "resolve",
           "notes": "",
           "createdAt": "2026-03-15T08:19:43.141Z"
@@ -279,7 +279,7 @@
           "id": "87cbf279-b944-494d-b8ac-1c7c93d1bdb0",
           "incidentId": "aafb002c-add9-43f0-86c9-646b7865d759",
           "authorityId": "9777e7e2-4366-4720-91c2-2d8cb9b5eed5",
-          "authorityName": "JEIP Admin",
+          "authorityName": "Postalert Admin",
           "action": "resolve",
           "notes": "",
           "createdAt": "2026-03-15T08:19:46.910Z"

@@ -58,6 +58,7 @@ const {
   submitAppeal,
   updateNotificationPreferences,
   updateProfile,
+  validateCredentials,
   verifyCredentials
 } = await import('../lib/platform-store.js');
 const registerRoute = await import('../app/api/auth/register/route.js');
@@ -151,7 +152,7 @@ function makeAuthorityPayload(index, overrides = {}) {
 }
 
 async function seedAdmin() {
-  return assertSessionUser(await verifyCredentials('admin@jeip.gov.jm', 'Admin123!'));
+  return assertSessionUser(await verifyCredentials('admin@postalert.gov.jm', 'Admin123!'));
 }
 
 async function seedOfficer() {
@@ -280,6 +281,12 @@ test('1.5 authentication properties', async () => {
   assert.equal(await verifyCredentials('unknown@example.com', 'Wrong123!'), null);
   const { payload } = await createCitizen(80);
   assert.equal(await verifyCredentials(payload.email, 'Wrong123!'), null);
+  assert.equal(
+    (await verifyCredentials(` ${payload.email.toUpperCase()} `, payload.password))?.email,
+    payload.email
+  );
+  await expectPlatformError(() => validateCredentials('unknown@example.com', 'Wrong123!'), 4024);
+  await expectPlatformError(() => validateCredentials(payload.email, 'Wrong123!'), 4025);
 });
 
 test('1.8 password reset properties', async () => {
@@ -595,9 +602,11 @@ test('10.2 authority dashboard properties', async () => {
   assert.equal(dashboard.incidents.every((incident) => incident.parish === 'St. Andrew'), true);
   assert.ok(dashboard.stats.byCategory.Crime >= 1);
   assert.ok(dashboard.stats.bySeverity.high >= 1);
+  assert.ok(dashboard.stats.citizenSignups >= 1);
 
   const adminDashboard = await getAuthorityDashboard(admin.id, 'Kingston');
   assert.equal(adminDashboard.parish, 'Kingston');
+  assert.equal(adminDashboard.stats.citizenSignups, dashboard.stats.citizenSignups);
 
   const pendingAuthority = await createAuthority(70);
   const rawAuthority = await getUserByEmail(pendingAuthority.payload.email);

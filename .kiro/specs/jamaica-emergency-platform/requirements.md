@@ -2,13 +2,13 @@
 
 ## Introduction
 
-The Jamaica Emergency Intelligence Platform (JEIP) is a crowdsourced, real-time incident reporting and intelligence platform designed for Jamaica. It combines the community-driven approach of Waze and Citizen with emergency management capabilities tailored for Jamaican citizens and authorities. The platform enables citizens (16+) to report incidents with photos, GPS location, and severity ratings, while providing authorities (police, fire, ambulance, community leaders) with a dashboard for monitoring, verification, and response coordination.
+Postalert is a crowdsourced, real-time incident reporting and intelligence platform designed for Jamaica. It combines the community-driven approach of Waze and Citizen with emergency management capabilities tailored for Jamaican citizens and authorities. The platform enables citizens (16+) to report incidents with photos, GPS location, and severity ratings, while providing authorities (police, fire, ambulance, community leaders) with a dashboard for monitoring, verification, and response coordination.
 
 This is an MVP scope designed for a 24-hour hackathon, focusing on core functionality: user authentication, incident reporting, real-time map visualization, community confirmation system, authority dashboard, notifications, and basic content moderation.
 
 ## Glossary
 
-- **JEIP**: Jamaica Emergency Intelligence Platform - the main system being developed
+- **Postalert**: The main system being developed - a crowdsourced emergency reporting platform for Jamaica
 - **Citizen_User**: A registered user aged 16+ who can report and confirm incidents
 - **Authority_User**: A verified user representing police, fire, ambulance, or community leadership with elevated privileges
 - **Incident**: A reported event including crime, accident, natural disaster, infrastructure issue, or community alert
@@ -56,8 +56,8 @@ This is an MVP scope designed for a 24-hour hackathon, focusing on core function
 
 1. WHEN an authority user registers, THE Registration_Service SHALL require additional fields: organization name, badge/ID number, and official email domain
 2. THE Registration_Service SHALL flag new authority registrations for manual verification
-3. WHILE an authority account is pending verification, THE JEIP SHALL grant read-only access to the platform
-4. WHEN an administrator approves an authority account, THE JEIP SHALL upgrade the user role to Authority_User
+3. WHILE an authority account is pending verification, Postalert SHALL grant read-only access to the platform
+4. WHEN an administrator approves an authority account, Postalert SHALL upgrade the user role to Authority_User
 
 ### Requirement 4: Incident Reporting - Basic Information
 
@@ -161,7 +161,7 @@ This is an MVP scope designed for a 24-hour hackathon, focusing on core function
 
 #### Acceptance Criteria
 
-1. WHILE a user has Authority_User role, THE JEIP SHALL display the Authority_Dashboard option
+1. WHILE a user has Authority_User role, Postalert SHALL display the Authority_Dashboard option
 2. THE Authority_Dashboard SHALL display incidents filtered by the authority's assigned parish or jurisdiction
 3. THE Authority_Dashboard SHALL highlight unverified and high-severity incidents
 4. THE Authority_Dashboard SHALL display incident statistics: total active, by category, by severity
@@ -188,7 +188,7 @@ This is an MVP scope designed for a 24-hour hackathon, focusing on core function
 1. WHEN a user enables notifications, THE Notification_Service SHALL register the device token
 2. WHEN a high or critical severity incident is created within 5km of user's location, THE Notification_Service SHALL send a push notification within 30 seconds
 3. THE Notification_Service SHALL include incident category, severity, and distance in the notification
-4. WHEN a user taps a notification, THE JEIP SHALL open the incident detail view
+4. WHEN a user taps a notification, Postalert SHALL open the incident detail view
 5. THE Notification_Service SHALL respect user notification preferences (categories, severity threshold, quiet hours)
 
 ### Requirement 15: Historical Trends Dashboard
@@ -244,9 +244,9 @@ This is an MVP scope designed for a 24-hour hackathon, focusing on core function
 
 #### Acceptance Criteria
 
-1. THE JEIP SHALL render correctly on mobile devices (320px - 767px width)
-2. THE JEIP SHALL render correctly on tablets (768px - 1023px width)
-3. THE JEIP SHALL render correctly on desktops (1024px+ width)
+1. Postalert SHALL render correctly on mobile devices (320px - 767px width)
+2. Postalert SHALL render correctly on tablets (768px - 1023px width)
+3. Postalert SHALL render correctly on desktops (1024px+ width)
 4. THE Report_Form SHALL be fully functional on mobile devices with touch-friendly controls
 5. THE Incident_Feed map SHALL support touch gestures for pan and zoom on mobile
 
@@ -256,10 +256,10 @@ This is an MVP scope designed for a 24-hour hackathon, focusing on core function
 
 #### Acceptance Criteria
 
-1. WHEN network connection is lost, THE JEIP SHALL display cached incidents from the last successful sync
-2. WHEN a user attempts to report while offline, THE JEIP SHALL queue the report for submission when connection restores
-3. WHEN connection is restored, THE JEIP SHALL automatically submit queued reports and sync new data
-4. THE JEIP SHALL display a clear offline indicator when network is unavailable
+1. WHEN network connection is lost, Postalert SHALL display cached incidents from the last successful sync
+2. WHEN a user attempts to report while offline, Postalert SHALL queue the report for submission when connection restores
+3. WHEN connection is restored, Postalert SHALL automatically submit queued reports and sync new data
+4. Postalert SHALL display a clear offline indicator when network is unavailable
 
 ### Requirement 21: Data Persistence and API
 

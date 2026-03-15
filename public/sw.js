@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jeip-next-shell-v2';
+const CACHE_NAME = 'postalert-next-shell-v2';
 const ASSETS = ['/', '/auth', '/report', '/profile', '/trends', '/authority'];
 
 function isAppDataRequest(request, url) {
@@ -19,7 +19,7 @@ function parseNotificationPayload(data) {
     return data ? data.json() : {};
   } catch {
     return {
-      title: 'JEIP alert',
+      title: 'Postalert',
       body: data?.text ? data.text() : 'A new incident requires attention.'
     };
   }
@@ -89,7 +89,7 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('push', (event) => {
   const payload = parseNotificationPayload(event.data);
-  const title = payload.title || 'JEIP incident alert';
+  const title = payload.title || 'Postalert incident alert';
   const incidentId = payload.incidentId || payload.incident?.id || '';
   const destination = incidentId ? `/incidents/${incidentId}` : payload.url || '/';
 
@@ -99,7 +99,7 @@ self.addEventListener('push', (event) => {
       data: {
         url: destination
       },
-      tag: payload.tag || incidentId || 'jeip-alert',
+      tag: payload.tag || incidentId || 'postalert-alert',
       renotify: true
     })
   );

@@ -17,8 +17,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Eye,
+  EyeOff,
   LayoutGrid,
   LayoutList,
+  Menu,
   MapPinned,
   RadioTower,
   Search,
@@ -26,7 +29,8 @@ import {
   Siren,
   TriangleAlert,
   Upload,
-  UserRound
+  UserRound,
+  X
 } from 'lucide-react';
 
 import {
@@ -52,9 +56,9 @@ import { createSupabaseBrowserClient } from '../lib/supabase/client.js';
 import { MapboxIncidentMap } from './mapbox-incident-map.jsx';
 import { MapboxLocationPicker } from './mapbox-location-picker.jsx';
 
-const INCIDENT_CACHE_KEY = 'jeip_cached_incidents';
+const INCIDENT_CACHE_KEY = 'postalert_cached_incidents';
 const MAPBOX_ENABLED = Boolean(process.env.NEXT_PUBLIC_MAPBOX_TOKEN);
-const REPORT_QUEUE_KEY = 'jeip_report_queue';
+const REPORT_QUEUE_KEY = 'postalert_report_queue';
 
 export function PlatformShell({ page, incidentId = '' }) {
   const router = useRouter();
@@ -104,7 +108,9 @@ export function PlatformShell({ page, incidentId = '' }) {
   const [queue, setQueue] = useState(readFromStorage(REPORT_QUEUE_KEY, []));
   const [online, setOnline] = useState(typeof window !== 'undefined' ? window.navigator.onLine : true);
   const [flash, setFlash] = useState(null);
+  const [authErrors, setAuthErrors] = useState({});
   const [authConfirmation, setAuthConfirmation] = useState(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [resetPreview, setResetPreview] = useState(null);
   const [authorityAlert, setAuthorityAlert] = useState(null);
 
@@ -126,7 +132,7 @@ export function PlatformShell({ page, incidentId = '' }) {
         .then((keys) =>
           Promise.all(
             keys
-              .filter((key) => key.startsWith('jeip-next-shell'))
+              .filter((key) => key.startsWith('postalert-next-shell'))
               .map((key) => window.caches.delete(key))
           )
         )
@@ -145,7 +151,7 @@ export function PlatformShell({ page, incidentId = '' }) {
     if (typeof window === 'undefined' || !window.BroadcastChannel) {
       return;
     }
-    const channel = new BroadcastChannel('jeip-platform');
+    const channel = new BroadcastChannel('postalert-platform');
     channelRef.current = channel;
     channel.onmessage = (event) => {
       if (event.data?.type === 'refresh-incidents') {
@@ -222,6 +228,10 @@ export function PlatformShell({ page, incidentId = '' }) {
   }, [page, showAuthorityRoute, authorityFilters.parish, authorityFilters.status]);
 
   useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
     if (page === 'trends') {
       loadTrendData(
         trendsBundle.period,
@@ -239,7 +249,7 @@ export function PlatformShell({ page, incidentId = '' }) {
     }
 
     const channel = supabase
-      .channel('jeip-realtime')
+      .channel('postalert-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'incidents' },
@@ -438,18 +448,43 @@ export function PlatformShell({ page, incidentId = '' }) {
     }
   }
 
+  function clearAuthErrors(field) {
+    if (!field) {
+      setAuthErrors({});
+      return;
+    }
+
+    setAuthErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
+
   async function handleAuth(mode, payload) {
     try {
+      clearAuthErrors();
       setAuthConfirmation(null);
       setResetPreview(null);
       if (mode === 'login') {
+        await apiRequest('/api/auth/login', {
+          method: 'POST',
+          body: {
+            email: payload.email,
+            password: payload.password
+          }
+        });
         const result = await signIn('credentials', {
           email: payload.email,
           password: payload.password,
           redirect: false
         });
         if (result?.error) {
-          throw new Error('Invalid email or password.');
+          throw new Error('Sign in failed. Please try again.');
         }
       } else {
         await apiRequest('/api/auth/register', {
@@ -490,6 +525,13 @@ export function PlatformShell({ page, incidentId = '' }) {
         email: payload.email
       });
     } catch (error) {
+      const fieldErrors = getAuthFieldErrors(error);
+      if (fieldErrors) {
+        setAuthErrors(fieldErrors);
+        setFlash(null);
+        return;
+      }
+
       setFlash({ tone: 'error', message: error.message });
     }
   }
@@ -765,7 +807,10 @@ export function PlatformShell({ page, incidentId = '' }) {
       >
         <AuthScreen
           confirmation={authConfirmation}
+          errors={authErrors}
           initialMode={initialAuthMode}
+          onClearError={clearAuthErrors}
+          onClearErrors={() => clearAuthErrors()}
           onContinue={continueFromAuthConfirmation}
           onRequestReset={requestPasswordReset}
           onResetPassword={completePasswordReset}
@@ -787,43 +832,107 @@ export function PlatformShell({ page, incidentId = '' }) {
           : currentUser.role === 'authority' || currentUser.role === 'admin'
             ? 'Authority access'
             : 'Citizen access';
+  const headerNavItems = [
+    { href: '/feed', label: 'Feed' },
+    { href: '/report', label: 'Report' },
+    { href: '/trends', label: 'Trends' },
+    ...(showAuthorityRoute ? [{ href: '/authority', label: 'Authority' }] : []),
+    ...(currentUser ? [{ href: '/profile', label: 'Profile' }] : [])
+  ];
 
   return (
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">
       <div className="app-grid absolute inset-0 pointer-events-none opacity-70" />
       <header className="sticky top-0 z-40 border-b border-white/10 bg-[var(--surface)]/85 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <Link href="/feed" className="flex min-w-0 items-center gap-4">
-            <div className="brand-mark">
-              <RadioTower aria-hidden="true" className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="font-display truncate text-2xl tracking-[0.02em] text-white">
-                PostAlert
-              </p>
-            </div>
-          </Link>
+        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
+          <div className="flex items-center justify-between gap-4">
+            <Link href="/feed" className="flex min-w-0 items-center gap-4">
+              <div className="brand-mark">
+                <RadioTower aria-hidden="true" className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-display truncate text-2xl tracking-[0.02em] text-white">
+                  PostAlert
+                </p>
+              </div>
+            </Link>
 
-          <nav className="hidden items-center gap-1 xl:gap-2 lg:flex">
-            <HeaderLink href="/feed">Feed</HeaderLink>
-            <HeaderLink href="/report">Report</HeaderLink>
-            <HeaderLink href="/trends">Trends</HeaderLink>
-            {showAuthorityRoute ? <HeaderLink href="/authority">Authority</HeaderLink> : null}
-            {currentUser ? <HeaderLink href="/profile">Profile</HeaderLink> : null}
-          </nav>
+            <nav className="hidden items-center gap-1 xl:gap-2 lg:flex">
+              {headerNavItems.map((item) => (
+                <HeaderLink key={item.href} href={item.href}>
+                  {item.label}
+                </HeaderLink>
+              ))}
+            </nav>
 
-          <div className="flex items-center gap-2 xl:gap-3">
-            <StatusPill online={online} mode={status} />
-            <HeaderAccountPill label={headerIdentity} name={currentUser?.name || 'Read-only public view'} />
-            {currentUser ? (
+            <div className="flex items-center gap-2 xl:gap-3">
+              <div className="hidden lg:block">
+                <StatusPill online={online} mode={status} />
+              </div>
+              <HeaderAccountPill label={headerIdentity} name={currentUser?.name || 'Read-only public view'} />
+              {currentUser ? (
+                <button
+                  className="ghost-button hidden whitespace-nowrap px-5 lg:inline-flex"
+                  onClick={() => signOut({ callbackUrl: '/' })}
+                >
+                  Sign out
+                </button>
+              ) : null}
               <button
-                className="ghost-button whitespace-nowrap px-5"
-                onClick={() => signOut({ callbackUrl: '/' })}
+                aria-expanded={mobileNavOpen}
+                aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                className="ghost-button h-12 w-12 shrink-0 p-0 lg:hidden"
+                onClick={() => setMobileNavOpen((current) => !current)}
+                type="button"
               >
-                Sign out
+                {mobileNavOpen ? <X aria-hidden="true" className="h-5 w-5" /> : <Menu aria-hidden="true" className="h-5 w-5" />}
               </button>
-            ) : null}
+            </div>
           </div>
+
+          {mobileNavOpen ? (
+            <div className="mt-4 lg:hidden">
+              <div className="rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(17,24,38,0.98),rgba(23,34,51,0.94))] p-4 shadow-[0_26px_60px_rgba(3,8,20,0.34)]">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <StatusPill online={online} mode={status} />
+                  <div className="rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-3">
+                    <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      {headerIdentity}
+                    </div>
+                    <div className="mt-2 truncate text-sm font-semibold text-white">
+                      {currentUser?.name || 'Read-only public view'}
+                    </div>
+                  </div>
+                </div>
+
+                <nav className="mt-4 grid gap-2">
+                  {headerNavItems.map((item) => (
+                    <HeaderLink
+                      key={item.href}
+                      href={item.href}
+                      className="block w-full rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-4 text-left text-slate-100"
+                      onClick={() => setMobileNavOpen(false)}
+                    >
+                      {item.label}
+                    </HeaderLink>
+                  ))}
+                </nav>
+
+                {currentUser ? (
+                  <button
+                    className="ghost-button mt-4 w-full justify-start rounded-[20px] px-4 py-4"
+                    onClick={() => {
+                      setMobileNavOpen(false);
+                      signOut({ callbackUrl: '/' });
+                    }}
+                    type="button"
+                  >
+                    Sign out
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -875,12 +984,15 @@ export function PlatformShell({ page, incidentId = '' }) {
         ) : null}
 
         {page === 'auth' ? (
-          <AuthScreen
-            confirmation={authConfirmation}
-            initialMode={initialAuthMode}
-            onContinue={continueFromAuthConfirmation}
-            onRequestReset={requestPasswordReset}
-            onResetPassword={completePasswordReset}
+        <AuthScreen
+          confirmation={authConfirmation}
+          errors={authErrors}
+          initialMode={initialAuthMode}
+          onClearError={clearAuthErrors}
+          onClearErrors={() => clearAuthErrors()}
+          onContinue={continueFromAuthConfirmation}
+          onRequestReset={requestPasswordReset}
+          onResetPassword={completePasswordReset}
             onSubmit={handleAuth}
             resetPreview={resetPreview}
           />
@@ -966,12 +1078,16 @@ export function PlatformShell({ page, incidentId = '' }) {
   );
 }
 
-function HeaderLink({ href, children }) {
+function HeaderLink({ href, children, className = '', onClick }) {
   const pathname = usePathname();
   const active =
     pathname === href || (href === '/feed' && pathname?.startsWith('/incidents/'));
   return (
-    <Link href={href} className={`nav-link ${active ? 'nav-link-active' : ''}`}>
+    <Link
+      href={href}
+      className={`nav-link ${active ? 'nav-link-active' : ''} ${className}`}
+      onClick={onClick}
+    >
       {children}
     </Link>
   );
@@ -2232,9 +2348,63 @@ function AuthFeatureCard({ caption, icon: Icon, title }) {
   );
 }
 
+function FieldErrorNotice({ message }) {
+  return (
+    <div role="alert" className="field-error-note">
+      {message}
+    </div>
+  );
+}
+
+function PasswordField({
+  autoComplete = 'current-password',
+  error = '',
+  label = 'Password',
+  minLength = 8,
+  onChange,
+  onClearError,
+  required = false,
+  value
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <label className="space-y-2">
+      {error ? <FieldErrorNotice message={error} /> : null}
+      <span className="section-label">{label}</span>
+      <div className="password-field">
+        <input
+          autoComplete={autoComplete}
+          className={`field ${error ? 'field-error' : ''}`}
+          minLength={minLength}
+          onChange={(event) => {
+            onChange(event);
+            onClearError?.();
+          }}
+          required={required}
+          type={visible ? 'text' : 'password'}
+          value={value}
+        />
+        <button
+          aria-label={`${visible ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
+          className="password-toggle"
+          onClick={() => setVisible((current) => !current)}
+          type="button"
+        >
+          {visible ? <EyeOff aria-hidden="true" className="h-4 w-4" /> : <Eye aria-hidden="true" className="h-4 w-4" />}
+          <span>{visible ? 'Hide' : 'Show'}</span>
+        </button>
+      </div>
+    </label>
+  );
+}
+
 function AuthScreen({
   confirmation,
+  errors = {},
   initialMode = 'login',
+  onClearError,
+  onClearErrors,
   onContinue,
   onRequestReset,
   onResetPassword,
@@ -2289,6 +2459,18 @@ function AuthScreen({
     }));
   }, [resetPreview]);
 
+  function selectMode(nextMode) {
+    setMode(nextMode);
+    onClearErrors?.();
+  }
+
+  function updateFormField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+    if (field === 'email' || field === 'password') {
+      onClearError?.(field);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <div className="rounded-[34px] border border-white/10 bg-white/5 p-5">
@@ -2306,21 +2488,21 @@ function AuthScreen({
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <button
             className={`toggle-button ${mode === 'login' ? 'toggle-button-active' : ''}`}
-            onClick={() => setMode('login')}
+            onClick={() => selectMode('login')}
             type="button"
           >
             Sign in
           </button>
           <button
             className={`toggle-button ${mode === 'register' ? 'toggle-button-active' : ''}`}
-            onClick={() => setMode('register')}
+            onClick={() => selectMode('register')}
             type="button"
           >
             Citizen
           </button>
           <button
             className={`toggle-button ${mode === 'authority' ? 'toggle-button-active' : ''}`}
-            onClick={() => setMode('authority')}
+            onClick={() => selectMode('authority')}
             type="button"
           >
             Authority
@@ -2354,26 +2536,26 @@ function AuthScreen({
           }}
         >
           <label className="space-y-2">
+            {errors.email ? <FieldErrorNotice message={errors.email} /> : null}
             <span className="section-label">Email</span>
             <input
-              className="field"
+              autoComplete="email"
+              className={`field ${errors.email ? 'field-error' : ''}`}
+              spellCheck={false}
               type="email"
               value={form.email}
-              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+              onChange={(event) => updateFormField('email', event.target.value)}
               required
             />
           </label>
-          <label className="space-y-2">
-            <span className="section-label">Password</span>
-            <input
-              className="field"
-              type="password"
-              minLength={8}
-              value={form.password}
-              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-              required
-            />
-          </label>
+          <PasswordField
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            error={errors.password}
+            minLength={8}
+            onChange={(event) => updateFormField('password', event.target.value)}
+            required
+            value={form.password}
+          />
           {mode !== 'login' ? (
             <>
               <label className="space-y-2">
@@ -2381,7 +2563,7 @@ function AuthScreen({
                 <input
                   className="field"
                   value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  onChange={(event) => updateFormField('name', event.target.value)}
                   required
                 />
               </label>
@@ -2390,7 +2572,7 @@ function AuthScreen({
                 <select
                   className="field"
                   value={form.parish}
-                  onChange={(event) => setForm((current) => ({ ...current, parish: event.target.value }))}
+                  onChange={(event) => updateFormField('parish', event.target.value)}
                 >
                   {PARISHES.map((parish) => (
                     <option key={parish} value={parish}>
@@ -2408,9 +2590,7 @@ function AuthScreen({
                 <input
                   className="field"
                   value={form.organizationName}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, organizationName: event.target.value }))
-                  }
+                  onChange={(event) => updateFormField('organizationName', event.target.value)}
                   required
                 />
               </label>
@@ -2419,9 +2599,7 @@ function AuthScreen({
                 <input
                   className="field"
                   value={form.badgeNumber}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, badgeNumber: event.target.value }))
-                  }
+                  onChange={(event) => updateFormField('badgeNumber', event.target.value)}
                   required
                 />
               </label>
@@ -2456,7 +2634,9 @@ function AuthScreen({
                   <label className="space-y-2">
                     <span className="section-label">Account email</span>
                     <input
+                      autoComplete="email"
                       className="field"
+                      spellCheck={false}
                       type="email"
                       value={resetForm.email}
                       onChange={(event) =>
@@ -2495,18 +2675,15 @@ function AuthScreen({
                       }
                     />
                   </label>
-                  <label className="space-y-2">
-                    <span className="section-label">New password</span>
-                    <input
-                      className="field"
-                      type="password"
-                      minLength={8}
-                      value={resetForm.password}
-                      onChange={(event) =>
-                        setResetForm((current) => ({ ...current, password: event.target.value }))
-                      }
-                    />
-                  </label>
+                  <PasswordField
+                    autoComplete="new-password"
+                    label="New password"
+                    minLength={8}
+                    onChange={(event) =>
+                      setResetForm((current) => ({ ...current, password: event.target.value }))
+                    }
+                    value={resetForm.password}
+                  />
                   <button
                     className="primary-button w-full"
                     disabled={!resetForm.token || resetForm.password.length < 8}
@@ -2972,8 +3149,9 @@ function AuthorityScreen({ dashboard, filters, pendingAuthorities, user, onActio
             </select>
           </label>
         </div>
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard label="Total active" value={String(dashboard.stats.totalActive)} />
+          <SummaryCard label="Citizen signups" value={String(dashboard.stats.citizenSignups || 0)} />
           <SummaryCard label="Highest category" value={Object.entries(dashboard.stats.byCategory).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None'} />
           <SummaryCard label="Highest severity" value={Object.entries(dashboard.stats.bySeverity).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None'} />
         </div>
@@ -3771,6 +3949,22 @@ function normalizeCallbackPath(value) {
   }
 }
 
+function getAuthFieldErrors(error) {
+  if (!error?.code) {
+    return null;
+  }
+
+  if ([4022, 4024, 4090, 4006].includes(error.code)) {
+    return { email: error.message };
+  }
+
+  if ([4004, 4023, 4025].includes(error.code)) {
+    return { password: error.message };
+  }
+
+  return null;
+}
+
 function openIncidentPage(incidentId, router) {
   const destination = incidentDetailPath(incidentId);
   if (typeof window !== 'undefined') {
@@ -3782,7 +3976,7 @@ function openIncidentPage(incidentId, router) {
 
 function broadcast(type, payload = {}) {
   if (typeof window !== 'undefined' && window.BroadcastChannel) {
-    const channel = new BroadcastChannel('jeip-platform');
+    const channel = new BroadcastChannel('postalert-platform');
     channel.postMessage({ type, ...payload });
     channel.close();
   }
@@ -3798,7 +3992,10 @@ async function apiRequest(path, { method = 'GET', body } = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || 'Request failed');
+    const error = new Error(data.error || 'Request failed');
+    error.code = data.code;
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
