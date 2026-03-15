@@ -4093,7 +4093,8 @@ function openIncidentPage(incidentId, router) {
 }
 
 function openIncidentPreview(incidentId, router, searchParams) {
-  router.push(feedIncidentPath(searchParams, incidentId), { scroll: false });
+  // Navigate to the dedicated incident detail page
+  router.push(`/incidents/${incidentId}`);
 }
 
 function closeIncidentPreview(router, searchParams) {
