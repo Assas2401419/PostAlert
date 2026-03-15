@@ -16,7 +16,7 @@ import { haversineKm, severityIndex } from './utils.js';
 
 const NotificationContext = createContext(null);
 
-const BROADCAST_CHANNEL_NAME = 'jeip-platform';
+const BROADCAST_CHANNEL_NAME = 'postalert-platform';
 const EXIT_ANIMATION_DURATION = 300;
 const MAX_VISIBLE_NOTIFICATIONS = 4;
 const NOTIFICATION_DISPLAY_DURATION = 8000;
@@ -363,6 +363,7 @@ export function NotificationProvider({ children }) {
     return () => channel.close();
   }, [addNotification, session?.user]);
 
+  // Subscribe to notifications table for this user
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !session?.user?.id) {
@@ -393,6 +394,53 @@ export function NotificationProvider({ children }) {
       supabase.removeChannel(channel);
     };
   }, [ingestServerNotification, session?.user?.id]);
+
+  // Subscribe to new incidents directly for real-time notifications
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !session?.user) {
+      return undefined;
+    }
+
+    const channel = supabase
+      .channel('new-incidents-notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'incidents'
+        },
+        async (payload) => {
+          const row = payload.new;
+          if (!row?.id) {
+            return;
+          }
+          
+          // Fetch the full incident details
+          try {
+            const response = await fetch(`/api/incidents/${row.id}`);
+            if (!response.ok) {
+              return;
+            }
+            const data = await response.json();
+            const incident = normalizeIncident(data.incident);
+            
+            // Check if this user should see the notification
+            if (shouldDisplayForUser(incident, session.user)) {
+              addNotification(incident, { source: 'realtime-incident' });
+            }
+          } catch {
+            // Ignore fetch errors
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [addNotification, session?.user]);
 
   useEffect(() => {
     if (!session?.user?.id) {

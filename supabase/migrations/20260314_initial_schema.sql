@@ -139,3 +139,6 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 -- Enable Realtime for incidents table
 ALTER PUBLICATION supabase_realtime ADD TABLE incidents;
+
+-- Enable Realtime for notifications table
+ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
