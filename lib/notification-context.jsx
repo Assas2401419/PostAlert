@@ -62,11 +62,15 @@ function shouldDisplayForUser(incident, user) {
     return false;
   }
 
+  const isOperationalUser = user.role === 'admin' || user.role === 'authority';
   const prefs = mergePrefs(user.notificationPrefs);
-  if (!prefs.enabled) {
+  if (incident.reporterId === user.id) {
     return false;
   }
-  if (incident.reporterId === user.id) {
+  if (isOperationalUser) {
+    return true;
+  }
+  if (!prefs.enabled) {
     return false;
   }
   if (!prefs.categories.includes(incident.category)) {
@@ -112,6 +116,8 @@ export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const exitTimersRef = useRef(new Map());
   const seenIncidentsRef = useRef(new Map());
+  const knownNotificationIdsRef = useRef(new Set());
+  const profileNotificationsReadyRef = useRef(false);
 
   const addNotification = useCallback((incidentInput, options = {}) => {
     const incident = normalizeIncident(incidentInput, options.fallbackBody);
@@ -200,6 +206,42 @@ export function NotificationProvider({ children }) {
       createdAt: new Date().toISOString()
     });
   }, [addNotification, session?.user?.parish]);
+
+  const ingestServerNotification = useCallback(
+    async (row, source = 'server') => {
+      const notificationId = String(row?.id || row?.incident_id || row?.incidentId || '');
+      const incidentId = row?.incident_id || row?.incidentId || '';
+      if (!notificationId || !incidentId || knownNotificationIdsRef.current.has(notificationId)) {
+        return;
+      }
+
+      knownNotificationIdsRef.current.add(notificationId);
+
+      try {
+        const response = await fetch(`/api/incidents/${incidentId}`);
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        const incident = normalizeIncident(data.incident, row.body || '');
+        addNotification(
+          {
+            ...incident,
+            notificationTitle: row.title || '',
+            notificationBody: row.body || ''
+          },
+          {
+            id: `notif_${notificationId}`,
+            source
+          }
+        );
+      } catch {
+        // Ignore transient notification fetch failures.
+      }
+    },
+    [addNotification]
+  );
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -290,29 +332,7 @@ export function NotificationProvider({ children }) {
           if (!row?.incident_id) {
             return;
           }
-
-          try {
-            const response = await fetch(`/api/incidents/${row.incident_id}`);
-            if (!response.ok) {
-              return;
-            }
-
-            const data = await response.json();
-            const incident = normalizeIncident(data.incident, row.body || '');
-            addNotification(
-              {
-                ...incident,
-                notificationTitle: row.title || '',
-                notificationBody: row.body || ''
-              },
-              {
-                id: `notif_${row.id}`,
-                source: 'supabase'
-              }
-            );
-          } catch {
-            // Ignore transient fetch failures for in-app toasts.
-          }
+          ingestServerNotification(row, 'supabase');
         }
       )
       .subscribe();
@@ -320,7 +340,58 @@ export function NotificationProvider({ children }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [addNotification, session?.user?.id]);
+  }, [ingestServerNotification, session?.user?.id]);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      profileNotificationsReadyRef.current = false;
+      knownNotificationIdsRef.current.clear();
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const syncProfileNotifications = async () => {
+      try {
+        const response = await fetch('/api/profile', {
+          cache: 'no-store'
+        });
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        const rows = Array.isArray(data.notifications) ? data.notifications : [];
+        if (!profileNotificationsReadyRef.current) {
+          rows.forEach((row) => {
+            if (row?.id) {
+              knownNotificationIdsRef.current.add(String(row.id));
+            }
+          });
+          profileNotificationsReadyRef.current = true;
+          return;
+        }
+
+        const freshRows = rows.filter((row) => row?.id && !knownNotificationIdsRef.current.has(String(row.id)));
+        for (const row of freshRows.reverse()) {
+          if (cancelled) {
+            return;
+          }
+          await ingestServerNotification(row, 'profile-poll');
+        }
+      } catch {
+        // Ignore local polling failures and retry on the next interval.
+      }
+    };
+
+    syncProfileNotifications();
+    const interval = window.setInterval(syncProfileNotifications, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [ingestServerNotification, session?.user?.id]);
 
   const value = {
     notifications,

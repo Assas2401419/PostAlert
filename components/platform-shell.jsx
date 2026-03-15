@@ -12,6 +12,7 @@ import { signIn, signOut, useSession } from 'next-auth/react';
 import {
   AlertTriangle,
   Bell,
+  Camera,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -24,6 +25,7 @@ import {
   ShieldCheck,
   Siren,
   TriangleAlert,
+  Upload,
   UserRound
 } from 'lucide-react';
 
@@ -60,6 +62,7 @@ export function PlatformShell({ page, incidentId = '' }) {
   const searchParams = useSearchParams();
   const { data: session, status, update } = useSession();
   const channelRef = useRef(null);
+  const lastAuthorityAlertIdRef = useRef('');
   const realtimeRef = useRef(null);
   const listEndRef = useRef(null);
   const [incidents, setIncidents] = useState(readFromStorage(INCIDENT_CACHE_KEY, []));
@@ -210,8 +213,11 @@ export function PlatformShell({ page, incidentId = '' }) {
   useEffect(() => {
     if (page === 'authority' && showAuthorityRoute) {
       loadAuthorityData();
+      const interval = window.setInterval(() => loadAuthorityData(), 15000);
+      return () => window.clearInterval(interval);
     }
-  }, [page, showAuthorityRoute, currentUser?.parish, authorityFilters.parish, authorityFilters.status]);
+    return undefined;
+  }, [page, showAuthorityRoute, authorityFilters.parish, authorityFilters.status]);
 
   useEffect(() => {
     if (page === 'trends') {
@@ -223,16 +229,6 @@ export function PlatformShell({ page, incidentId = '' }) {
       );
     }
   }, [page, trendsBundle.period, trendsBundle.parish, trendsBundle.dateFrom, trendsBundle.dateTo]);
-
-  useEffect(() => {
-    if (!currentUser?.parish) {
-      return;
-    }
-    setAuthorityFilters((current) => ({
-      ...current,
-      parish: current.parish || currentUser.parish
-    }));
-  }, [currentUser?.parish]);
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -370,9 +366,10 @@ export function PlatformShell({ page, incidentId = '' }) {
 
   async function loadAuthorityData() {
     try {
-      const searchParams = new URLSearchParams({
-        parish: authorityFilters.parish || currentUser?.parish || ''
-      });
+      const searchParams = new URLSearchParams();
+      if (authorityFilters.parish) {
+        searchParams.set('parish', authorityFilters.parish);
+      }
       if (authorityFilters.status) {
         searchParams.set('status', authorityFilters.status);
       }
@@ -385,7 +382,12 @@ export function PlatformShell({ page, incidentId = '' }) {
       );
       if (latestHighSeverity) {
         setAuthorityAlert(latestHighSeverity);
-        playAlertTone();
+        if (latestHighSeverity.id !== lastAuthorityAlertIdRef.current) {
+          lastAuthorityAlertIdRef.current = latestHighSeverity.id;
+          playAlertTone();
+        }
+      } else {
+        setAuthorityAlert(null);
       }
       if (currentUser?.role === 'admin') {
         const pending = await apiRequest('/api/admin/authorities/pending');
@@ -2171,6 +2173,8 @@ function ReportWizard({ canPost, onSubmit, user }) {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const galleryInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
   const [form, setForm] = useState({
     category: 'Crime',
     subcategory: CATEGORY_SUBCATEGORIES.Crime[0],
@@ -2186,7 +2190,16 @@ function ReportWizard({ canPost, onSubmit, user }) {
     PARISHES.find((parish) => form.address.includes(parish)) || user?.parish || 'Kingston';
 
   async function handleFiles(fileList) {
-    const files = Array.from(fileList).slice(0, 3);
+    const selectedFiles = Array.from(fileList || []);
+    if (!selectedFiles.length) {
+      return;
+    }
+    const remainingSlots = Math.max(0, 3 - form.photos.length);
+    if (!remainingSlots) {
+      setError('You can upload up to 3 photos per report.');
+      return;
+    }
+    const files = selectedFiles.slice(0, remainingSlots);
     const invalid = files.find((file) => !['image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024);
     if (invalid) {
       setError('Only JPEG or PNG files up to 5MB are allowed.');
@@ -2200,8 +2213,13 @@ function ReportWizard({ canPost, onSubmit, user }) {
         dataUrl: await readFileAsDataUrl(file)
       }))
     );
-    setForm((current) => ({ ...current, photos }));
-    setError('');
+    setForm((current) => ({ ...current, photos: [...current.photos, ...photos].slice(0, 3) }));
+    setError(selectedFiles.length > remainingSlots ? 'You can upload up to 3 photos per report.' : '');
+  }
+
+  function handlePhotoInputChange(event) {
+    handleFiles(event.target.files);
+    event.target.value = '';
   }
 
   function requestLocation() {
@@ -2405,11 +2423,47 @@ function ReportWizard({ canPost, onSubmit, user }) {
             </label>
             <label className="space-y-2">
               <span className="section-label">Upload up to 3 photos</span>
-              <input className="field" type="file" accept="image/jpeg,image/png" multiple onChange={(event) => handleFiles(event.target.files)} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  className="ghost-button justify-center"
+                  onClick={() => galleryInputRef.current?.click()}
+                >
+                  <Upload aria-hidden="true" className="h-4 w-4" />
+                  Upload photo
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button justify-center"
+                  onClick={() => cameraInputRef.current?.click()}
+                >
+                  <Camera aria-hidden="true" className="h-4 w-4" />
+                  Use camera
+                </button>
+              </div>
+              <input
+                ref={galleryInputRef}
+                className="hidden"
+                type="file"
+                accept="image/jpeg,image/png"
+                multiple
+                onChange={handlePhotoInputChange}
+              />
+              <input
+                ref={cameraInputRef}
+                className="hidden"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handlePhotoInputChange}
+              />
+              <div className="text-xs text-slate-400">
+                JPEG or PNG up to 5MB each. On supported mobile devices, camera capture opens directly from this button.
+              </div>
             </label>
             <div className="grid gap-3 sm:grid-cols-3">
-              {form.photos.map((photo) => (
-                <img key={photo.name} src={photo.dataUrl} alt={photo.name} className="h-28 w-full rounded-[24px] object-cover" />
+              {form.photos.map((photo, index) => (
+                <img key={`${photo.name}-${index}`} src={photo.dataUrl} alt={photo.name} className="h-28 w-full rounded-[24px] object-cover" />
               ))}
             </div>
           </div>
@@ -2489,24 +2543,23 @@ function AuthorityScreen({ dashboard, filters, pendingAuthorities, user, onActio
         <div className="section-kicker">Authority operations</div>
         <h2 className="font-display text-3xl text-white">{dashboard.parish} command view</h2>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          {dashboard.isAdmin ? (
-            <label className="space-y-2">
-              <span className="section-label">Parish selector</span>
-              <select
-                className="field"
-                value={filters.parish}
-                onChange={(event) =>
-                  onFiltersChange((current) => ({ ...current, parish: event.target.value }))
-                }
-              >
-                {PARISHES.map((parish) => (
-                  <option key={parish} value={parish}>
-                    {parish}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
+          <label className="space-y-2">
+            <span className="section-label">{dashboard.isAdmin ? 'Parish selector' : 'Parish filter'}</span>
+            <select
+              className="field"
+              value={filters.parish}
+              onChange={(event) =>
+                onFiltersChange((current) => ({ ...current, parish: event.target.value }))
+              }
+            >
+              <option value="">All parishes</option>
+              {PARISHES.map((parish) => (
+                <option key={parish} value={parish}>
+                  {parish}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="space-y-2">
             <span className="section-label">Status filter</span>
             <select
@@ -2537,9 +2590,9 @@ function AuthorityScreen({ dashboard, filters, pendingAuthorities, user, onActio
         ) : null}
       </div>
       <div className="surface-card">
-        <div className="section-label mb-4">Jurisdiction incidents</div>
+        <div className="section-label mb-4">Visible incidents</div>
         <div className="space-y-3">
-          {dashboard.incidents.map((incident) => (
+          {dashboard.incidents.length ? dashboard.incidents.map((incident) => (
             <div key={incident.id} className={`rounded-[28px] border p-4 ${(incident.severity === 'high' || incident.severity === 'critical' || incident.credibility !== 'verified') ? 'border-amber-500/30 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-2">
@@ -2578,7 +2631,11 @@ function AuthorityScreen({ dashboard, filters, pendingAuthorities, user, onActio
                 </div>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="rounded-[28px] border border-white/10 bg-white/5 px-4 py-6 text-sm text-slate-400">
+              No incidents match the current filters yet.
+            </div>
+          )}
         </div>
       </div>
       {pendingAuthorities.length ? (
