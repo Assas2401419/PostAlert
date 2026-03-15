@@ -89,3 +89,4 @@ credentials/
 *.bak
 *.tmp
 *.temp
+.vercel
