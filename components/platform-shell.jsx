@@ -51,7 +51,7 @@ import { createSupabaseBrowserClient } from '../lib/supabase/client.js';
 const INCIDENT_CACHE_KEY = 'jeip_cached_incidents';
 const REPORT_QUEUE_KEY = 'jeip_report_queue';
 
-export function PlatformShell({ page }) {
+export function PlatformShell({ page, incidentId = '' }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -102,7 +102,7 @@ export function PlatformShell({ page }) {
   const [resetPreview, setResetPreview] = useState(null);
   const [authorityAlert, setAuthorityAlert] = useState(null);
 
-  const selectedIncidentId = searchParams.get('incident');
+  const selectedIncidentId = page === 'incident' ? incidentId : searchParams.get('incident');
   const sessionUser = session?.user || null;
   const currentUser = profileBundle?.user || sessionUser;
   const canPost = Boolean(currentUser?.canPost);
@@ -112,8 +112,24 @@ export function PlatformShell({ page }) {
     currentUser?.role === 'authority_pending';
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      window.caches
+        .keys()
+        .then((keys) =>
+          Promise.all(
+            keys
+              .filter((key) => key.startsWith('jeip-next-shell'))
+              .map((key) => window.caches.delete(key))
+          )
+        )
+        .catch(() => {});
+    }
+
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((registration) => registration.update())
+        .catch(() => {});
     }
   }, []);
 
@@ -166,7 +182,11 @@ export function PlatformShell({ page }) {
   }, [page, filters.timeRange, filters.parish, filters.categories.join(','), filters.severities.join(',')]);
 
   useEffect(() => {
-    if (!selectedIncidentId || page !== 'feed') {
+    if (!selectedIncidentId) {
+      setDetailIncident(null);
+      return;
+    }
+    if (page !== 'feed' && page !== 'incident') {
       setDetailIncident(null);
       return;
     }
@@ -543,13 +563,16 @@ export function PlatformShell({ page }) {
         method: 'POST',
         body: payload
       });
+      broadcast('incident-notification', {
+        incident: response.incident
+      });
       broadcast('refresh-incidents');
       setFlash({
         tone: 'success',
         message: response.photoWarning || 'Incident submitted successfully.'
       });
       await loadIncidents(1, false);
-      router.push(`/?incident=${response.incident.id}`);
+      openIncidentPage(response.incident.id, router);
     } catch (error) {
       setFlash({ tone: 'error', message: error.message });
     }
@@ -557,12 +580,17 @@ export function PlatformShell({ page }) {
 
   async function flushQueuedReports() {
     const items = [...queue];
+    let submittedCount = 0;
     for (const queued of items) {
       try {
-        await apiRequest('/api/incidents', {
+        const response = await apiRequest('/api/incidents', {
           method: 'POST',
           body: queued
         });
+        broadcast('incident-notification', {
+          incident: response.incident
+        });
+        submittedCount += 1;
         setQueue((current) => {
           const nextItems = current.filter((entry) => entry.queuedAt !== queued.queuedAt);
           writeToStorage(REPORT_QUEUE_KEY, nextItems);
@@ -572,7 +600,7 @@ export function PlatformShell({ page }) {
         break;
       }
     }
-    if (items.length) {
+    if (submittedCount) {
       broadcast('refresh-incidents');
       setFlash({ tone: 'success', message: 'Queued offline reports were submitted.' });
       loadIncidents(1, false);
@@ -742,7 +770,9 @@ export function PlatformShell({ page }) {
               <RadioTower aria-hidden="true" className="h-5 w-5" />
             </div>
             <div>
-              <p className="font-display text-xl tracking-[0.2em] text-white">JEIP</p>
+              <p className="font-display text-xl tracking-[0.08em] text-white sm:tracking-[0.12em]">
+                PostAlert
+              </p>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
                 Next.js / Auth.js / Supabase-ready
               </p>
@@ -786,11 +816,13 @@ export function PlatformShell({ page }) {
       ) : null}
 
       <main className="relative z-10 mx-auto flex max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-        <HeroStrip
-          user={currentUser}
-          queueCount={queue.length}
-          incidentCount={incidents.length}
-        />
+        {page !== 'incident' ? (
+          <HeroStrip
+            user={currentUser}
+            queueCount={queue.length}
+            incidentCount={incidents.length}
+          />
+        ) : null}
 
         {page === 'feed' ? (
           <FeedScreen
@@ -804,9 +836,23 @@ export function PlatformShell({ page }) {
             onFiltersChange={setFilters}
             onPageChange={(nextPage) => loadIncidents(nextPage, false)}
             onViewChange={setFeedView}
-            onOpenIncident={(incidentId) => router.push(`/?incident=${incidentId}`)}
+            onOpenIncident={(incidentId) => openIncidentPage(incidentId, router)}
             selectedIncidentId={selectedIncidentId}
             userLocation={currentUser?.lastKnownLocation}
+          />
+        ) : null}
+
+        {page === 'incident' ? (
+          <IncidentDetailPage
+            incident={detailIncident}
+            incidentId={selectedIncidentId}
+            loading={loadingDetail}
+            user={currentUser}
+            onCommentCreate={createIncidentComment}
+            onCommentDelete={deleteIncidentComment}
+            onConfirm={() => handleVote('confirm')}
+            onDispute={() => handleVote('dispute')}
+            onAuthorityAction={handleAuthorityAction}
           />
         ) : null}
 
@@ -878,24 +924,26 @@ export function PlatformShell({ page }) {
         ) : null}
       </main>
 
-      <IncidentDrawer
-        incident={detailIncident}
-        loading={loadingDetail}
-        user={currentUser}
-        onClose={() => router.push('/')}
-        onConfirm={() => handleVote('confirm')}
-        onCommentCreate={createIncidentComment}
-        onCommentDelete={deleteIncidentComment}
-        onDispute={() => handleVote('dispute')}
-        onAuthorityAction={handleAuthorityAction}
-      />
+      {page === 'feed' ? (
+        <IncidentDrawer
+          incident={detailIncident}
+          loading={loadingDetail}
+          user={currentUser}
+          onClose={() => router.push('/')}
+          onConfirm={() => handleVote('confirm')}
+          onCommentCreate={createIncidentComment}
+          onCommentDelete={deleteIncidentComment}
+          onDispute={() => handleVote('dispute')}
+          onAuthorityAction={handleAuthorityAction}
+        />
+      ) : null}
     </div>
   );
 }
 
 function HeaderLink({ href, children }) {
   const pathname = usePathname();
-  const active = pathname === href;
+  const active = pathname === href || (href === '/' && pathname?.startsWith('/incidents/'));
   return (
     <Link href={href} className={`nav-link ${active ? 'nav-link-active' : ''}`}>
       {children}
@@ -1360,6 +1408,416 @@ function IncidentCard({ incident, selected, onClick, userLocation }) {
   );
 }
 
+function IncidentDetailPage({
+  incident,
+  incidentId,
+  loading,
+  user,
+  onCommentCreate,
+  onCommentDelete,
+  onConfirm,
+  onDispute,
+  onAuthorityAction
+}) {
+  if (loading && !incident) {
+    return <div className="surface-card text-sm text-slate-400">Loading incident details…</div>;
+  }
+
+  if (!loading && !incident) {
+    return (
+      <div className="surface-card text-center">
+        <h1 className="font-display text-3xl text-white">Incident not available</h1>
+        <p className="mt-3 text-sm leading-7 text-slate-300">
+          We could not find an incident for ID {incidentId}.
+        </p>
+        <div className="mt-6 flex justify-center">
+          <Link href="/" className="primary-button">
+            Back to feed
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <section className="space-y-6">
+      <div className="surface-card">
+        <div className="flex flex-wrap items-start justify-between gap-6">
+          <div className="max-w-3xl space-y-4">
+            <Link href="/" className="ghost-button inline-flex items-center gap-2">
+              <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+              Back to feed
+            </Link>
+            <div>
+              <div className="section-kicker">Incident detail</div>
+              <h1 className="font-display text-4xl leading-none text-white md:text-5xl">
+                {incident?.title || 'Incident detail'}
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
+                {incident?.address || `${incident?.parish || 'Jamaica'}, Jamaica`}
+              </p>
+            </div>
+            {incident ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <CategoryBadge category={incident.category} />
+                <SeverityBadge severity={incident.severity} />
+                <StatusBadge status={incident.status} />
+                <CredibilityBadge credibility={incident.credibility} />
+              </div>
+            ) : null}
+          </div>
+
+          {incident ? (
+            <div className="grid w-full gap-4 sm:grid-cols-2 xl:w-[26rem]">
+              <InfoBlock label="Reported">{formatDateTime(incident.createdAt)}</InfoBlock>
+              <InfoBlock label="Reporter">
+                {incident.reporter?.name} · {incident.reporter?.parish}
+              </InfoBlock>
+              <InfoBlock label="Confirmations">{incident.confirmationCount}</InfoBlock>
+              <InfoBlock label="Disputes">{incident.disputeCount}</InfoBlock>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <IncidentDetailContent
+        incident={incident}
+        layout="page"
+        loading={loading}
+        user={user}
+        onCommentCreate={onCommentCreate}
+        onCommentDelete={onCommentDelete}
+        onConfirm={onConfirm}
+        onDispute={onDispute}
+        onAuthorityAction={onAuthorityAction}
+      />
+    </section>
+  );
+}
+
+function IncidentDetailContent({
+  incident,
+  layout = 'drawer',
+  loading,
+  user,
+  onCommentCreate,
+  onCommentDelete,
+  onConfirm,
+  onDispute,
+  onAuthorityAction
+}) {
+  const [notes, setNotes] = useState('');
+  const [comment, setComment] = useState('');
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const sectionClassName =
+    layout === 'page' ? 'surface-card space-y-5' : 'surface-muted';
+
+  useEffect(() => {
+    setNotes('');
+    setComment('');
+    setSelectedPhoto(null);
+  }, [incident?.id]);
+
+  if (loading && !incident) {
+    return (
+      <div className={layout === 'page' ? 'surface-card text-sm text-slate-400' : 'p-6 text-sm text-slate-400'}>
+        Loading incident details…
+      </div>
+    );
+  }
+
+  if (!incident) {
+    return (
+      <div className={layout === 'page' ? 'surface-card text-sm text-slate-400' : 'p-6 text-sm text-slate-400'}>
+        Incident details are unavailable.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <PhotoLightbox photo={selectedPhoto} onClose={() => setSelectedPhoto(null)} />
+
+      <div className={layout === 'page' ? 'grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_20rem]' : 'space-y-6 p-6'}>
+        <div className="space-y-6">
+          {layout === 'drawer' ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <CategoryBadge category={incident.category} />
+              <SeverityBadge severity={incident.severity} />
+              <StatusBadge status={incident.status} />
+            </div>
+          ) : null}
+
+          <div className={sectionClassName}>
+            <div className="section-label">Full description</div>
+            <p className="text-sm leading-7 text-slate-300">{incident.description}</p>
+          </div>
+
+          {layout === 'drawer' ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <InfoBlock label="Reported">{formatDateTime(incident.createdAt)}</InfoBlock>
+              <InfoBlock label="Reporter">
+                {incident.reporter?.name} · {incident.reporter?.parish}
+              </InfoBlock>
+              <InfoBlock label="Confirmations">{incident.confirmationCount}</InfoBlock>
+              <InfoBlock label="Disputes">{incident.disputeCount}</InfoBlock>
+            </div>
+          ) : null}
+
+          <div className={sectionClassName}>
+            <div className="section-label">Incident map</div>
+            <IncidentMap
+              highlightedIncidentId={incident.id}
+              incidents={[incident]}
+              onSelect={() => {}}
+              userLocation={null}
+            />
+          </div>
+
+          {incident.photos?.length ? (
+            <div className={sectionClassName}>
+              <div className="section-label">Uploaded photos</div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {incident.photos.map((photo) => (
+                  <button
+                    key={photo.id}
+                    className="group overflow-hidden rounded-[24px] border border-white/10"
+                    onClick={() => setSelectedPhoto(photo)}
+                    type="button"
+                  >
+                    <img
+                      alt={photo.name}
+                      className="h-48 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                      src={photo.url}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className={sectionClassName}>
+            <div className="section-label">Community confirmations</div>
+            <div className="space-y-2 text-sm text-slate-300">
+              {incident.confirmations?.length ? incident.confirmations.map((confirmation) => (
+                <div
+                  key={confirmation.id}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2"
+                >
+                  <span>{confirmation.userName}</span>
+                  <span className="text-slate-400">
+                    {confirmation.action} · {formatAgo(confirmation.createdAt)}
+                  </span>
+                </div>
+              )) : <div className="text-slate-400">No community actions yet.</div>}
+            </div>
+          </div>
+
+          {layout === 'drawer' ? (
+            <div className={sectionClassName}>
+              <div className="section-label">Authority actions</div>
+              <div className="space-y-2 text-sm text-slate-300">
+                {incident.authorityActions?.length ? incident.authorityActions.map((action) => (
+                  <div key={action.id} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                    <div className="font-semibold text-white">{action.action}</div>
+                    <div className="mt-1 text-slate-400">
+                      {action.authorityName} · {formatDateTime(action.createdAt)}
+                    </div>
+                    {action.notes ? <div className="mt-2">{action.notes}</div> : null}
+                  </div>
+                )) : <div className="text-slate-400">No authority actions have been recorded.</div>}
+              </div>
+            </div>
+          ) : null}
+
+          <div className={sectionClassName}>
+            <div className="section-label">Comments</div>
+            <div className="space-y-3">
+              {incident.comments?.length ? incident.comments.map((entry) => (
+                <div key={entry.id} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-white">{entry.author.name}</div>
+                      <div className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                        {entry.author.parish} · {formatAgo(entry.createdAt)}
+                      </div>
+                    </div>
+                    {entry.canDelete ? (
+                      <button
+                        className="ghost-button"
+                        onClick={() => onCommentDelete(entry.id)}
+                        type="button"
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 text-sm leading-7 text-slate-300">{entry.message}</div>
+                </div>
+              )) : <div className="text-slate-400">No discussion yet.</div>}
+            </div>
+            {user ? (
+              <div className="mt-4 space-y-3">
+                <textarea
+                  className="field min-h-24"
+                  placeholder="Add context or clarification for this incident."
+                  value={comment}
+                  onChange={(event) => setComment(event.target.value)}
+                />
+                <button
+                  className="primary-button"
+                  disabled={!comment.trim()}
+                  onClick={() => {
+                    onCommentCreate(comment.trim());
+                    setComment('');
+                  }}
+                  type="button"
+                >
+                  Post comment
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {layout === 'page' ? (
+          <div className="space-y-6">
+            {user && incident.canAct ? (
+              <div className="surface-card space-y-4">
+                <div className="section-label">Community action</div>
+                <div className="grid gap-3">
+                  <button className="primary-button" onClick={onConfirm} type="button">
+                    Confirm incident
+                  </button>
+                  <button
+                    className="ghost-button !border-rose-500/30 !text-rose-100"
+                    onClick={onDispute}
+                    type="button"
+                  >
+                    Dispute report
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="surface-card space-y-4">
+              <div className="section-label">Authority actions</div>
+              <div className="space-y-2 text-sm text-slate-300">
+                {incident.authorityActions?.length ? incident.authorityActions.map((action) => (
+                  <div key={action.id} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                    <div className="font-semibold text-white">{action.action}</div>
+                    <div className="mt-1 text-slate-400">
+                      {action.authorityName} · {formatDateTime(action.createdAt)}
+                    </div>
+                    {action.notes ? <div className="mt-2">{action.notes}</div> : null}
+                  </div>
+                )) : <div className="text-slate-400">No authority actions have been recorded.</div>}
+              </div>
+            </div>
+
+            {user?.role === 'authority' || user?.role === 'admin' ? (
+              <div className="surface-card space-y-4">
+                <div className="section-label">Record authority action</div>
+                <textarea
+                  className="field min-h-24"
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="Add operational notes for the public record."
+                  value={notes}
+                />
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {['verify', 'respond', 'resolve', 'dismiss'].map((action) => (
+                    <button
+                      key={action}
+                      className="ghost-button"
+                      onClick={() => onAuthorityAction(incident.id, action, notes)}
+                      type="button"
+                    >
+                      {action}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {layout === 'drawer' ? (
+          <>
+            {user && incident.canAct ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button className="primary-button" onClick={onConfirm} type="button">
+                  Confirm
+                </button>
+                <button
+                  className="ghost-button !border-rose-500/30 !text-rose-100"
+                  onClick={onDispute}
+                  type="button"
+                >
+                  Dispute
+                </button>
+              </div>
+            ) : null}
+
+            {user?.role === 'authority' || user?.role === 'admin' ? (
+              <div className="space-y-3 rounded-[28px] border border-white/10 bg-white/5 p-4">
+                <div className="section-label">Authority action</div>
+                <textarea
+                  className="field min-h-24"
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="Add operational notes for the public record."
+                  value={notes}
+                />
+                <div className="grid gap-2 sm:grid-cols-4">
+                  {['verify', 'respond', 'resolve', 'dismiss'].map((action) => (
+                    <button
+                      key={action}
+                      className="ghost-button"
+                      onClick={() => onAuthorityAction(incident.id, action, notes)}
+                      type="button"
+                    >
+                      {action}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function PhotoLightbox({ photo, onClose }) {
+  if (!photo) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/90 px-4 py-8">
+      <button
+        aria-label="Close photo viewer"
+        className="absolute inset-0"
+        onClick={onClose}
+        type="button"
+      />
+      <div className="relative z-10 flex max-h-full w-full max-w-5xl flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="section-label">Incident photo</div>
+          <button className="ghost-button" onClick={onClose} type="button">
+            Close photo
+          </button>
+        </div>
+        <img
+          alt={photo.name}
+          className="max-h-[80vh] w-full rounded-[28px] object-contain"
+          src={photo.url}
+        />
+      </div>
+    </div>
+  );
+}
+
 function IncidentDrawer({
   incident,
   loading,
@@ -1371,16 +1829,6 @@ function IncidentDrawer({
   onDispute,
   onAuthorityAction
 }) {
-  const [notes, setNotes] = useState('');
-  const [comment, setComment] = useState('');
-  const [selectedPhoto, setSelectedPhoto] = useState(null);
-
-  useEffect(() => {
-    setNotes('');
-    setComment('');
-    setSelectedPhoto(null);
-  }, [incident?.id]);
-
   if (!incident && !loading) {
     return null;
   }
@@ -1392,155 +1840,25 @@ function IncidentDrawer({
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
             <div className="section-kicker">Incident detail</div>
-            <h3 className="font-display text-3xl text-white">{incident?.title || 'Loading incident'}</h3>
+            <h3 className="font-display text-3xl text-white">
+              {incident?.title || 'Loading incident'}
+            </h3>
           </div>
-          <button className="ghost-button" onClick={onClose}>Close</button>
+          <button className="ghost-button" onClick={onClose} type="button">
+            Close
+          </button>
         </div>
-        {selectedPhoto ? (
-          <div className="p-6">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="section-label">Photo zoom</div>
-              <button className="ghost-button" onClick={() => setSelectedPhoto(null)} type="button">
-                Close photo
-              </button>
-            </div>
-            <img
-              alt={selectedPhoto.name}
-              className="max-h-[70vh] w-full rounded-[28px] object-contain"
-              src={selectedPhoto.url}
-            />
-          </div>
-        ) : loading ? (
-          <div className="p-6 text-sm text-slate-400">Loading incident details…</div>
-        ) : incident ? (
-          <div className="space-y-6 p-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <CategoryBadge category={incident.category} />
-              <SeverityBadge severity={incident.severity} />
-              <StatusBadge status={incident.status} />
-            </div>
-            <p className="text-sm leading-7 text-slate-300">{incident.description}</p>
-            <div className="grid gap-4 md:grid-cols-2">
-              <InfoBlock label="Reported">{formatDateTime(incident.createdAt)}</InfoBlock>
-              <InfoBlock label="Reporter">{incident.reporter?.name} · {incident.reporter?.parish}</InfoBlock>
-              <InfoBlock label="Confirmations">{incident.confirmationCount}</InfoBlock>
-              <InfoBlock label="Disputes">{incident.disputeCount}</InfoBlock>
-            </div>
-            <IncidentMap incidents={[incident]} userLocation={null} highlightedIncidentId={incident.id} onSelect={() => {}} />
-            {incident.photos?.length ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {incident.photos.map((photo) => (
-                  <button
-                    key={photo.id}
-                    className="overflow-hidden rounded-[24px] border border-white/10"
-                    onClick={() => setSelectedPhoto(photo)}
-                    type="button"
-                  >
-                    <img
-                      alt={photo.name}
-                      className="h-40 w-full object-cover transition-transform duration-200 hover:scale-[1.02]"
-                      src={photo.url}
-                    />
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            <div className="surface-muted">
-              <div className="section-label mb-3">Community confirmations</div>
-              <div className="space-y-2 text-sm text-slate-300">
-                {incident.confirmations?.length ? incident.confirmations.map((confirmation) => (
-                  <div key={confirmation.id} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-                    <span>{confirmation.userName}</span>
-                    <span className="text-slate-400">{confirmation.action} · {formatAgo(confirmation.createdAt)}</span>
-                  </div>
-                )) : <div className="text-slate-400">No community actions yet.</div>}
-              </div>
-            </div>
-
-            <div className="surface-muted">
-              <div className="section-label mb-3">Authority actions</div>
-              <div className="space-y-2 text-sm text-slate-300">
-                {incident.authorityActions?.length ? incident.authorityActions.map((action) => (
-                  <div key={action.id} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                    <div className="font-semibold text-white">{action.action}</div>
-                    <div className="mt-1 text-slate-400">{action.authorityName} · {formatDateTime(action.createdAt)}</div>
-                    {action.notes ? <div className="mt-2">{action.notes}</div> : null}
-                  </div>
-                )) : <div className="text-slate-400">No authority actions have been recorded.</div>}
-              </div>
-            </div>
-
-            <div className="surface-muted">
-              <div className="section-label mb-3">Comments</div>
-              <div className="space-y-3">
-                {incident.comments?.length ? incident.comments.map((entry) => (
-                  <div key={entry.id} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="font-semibold text-white">{entry.author.name}</div>
-                        <div className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                          {entry.author.parish} · {formatAgo(entry.createdAt)}
-                        </div>
-                      </div>
-                      {entry.canDelete ? (
-                        <button
-                          className="ghost-button"
-                          onClick={() => onCommentDelete(entry.id)}
-                          type="button"
-                        >
-                          Delete
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="mt-3 text-sm leading-7 text-slate-300">{entry.message}</div>
-                  </div>
-                )) : <div className="text-slate-400">No discussion yet.</div>}
-              </div>
-              {user ? (
-                <div className="mt-4 space-y-3">
-                  <textarea
-                    className="field min-h-24"
-                    placeholder="Add context or clarification for this incident."
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
-                  />
-                  <button
-                    className="primary-button"
-                    onClick={() => {
-                      onCommentCreate(comment);
-                      setComment('');
-                    }}
-                    type="button"
-                  >
-                    Post comment
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            {user && incident.canAct ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button className="primary-button" onClick={onConfirm}>Confirm</button>
-                <button className="ghost-button !border-rose-500/30 !text-rose-100" onClick={onDispute}>Dispute</button>
-              </div>
-            ) : null}
-
-            {(user?.role === 'authority' || user?.role === 'admin') ? (
-              <div className="space-y-3 rounded-[28px] border border-white/10 bg-white/5 p-4">
-                <div className="section-label">Authority action</div>
-                <textarea className="field min-h-24" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add operational notes for the public record." />
-                <div className="grid gap-2 sm:grid-cols-4">
-                  {['verify', 'respond', 'resolve', 'dismiss'].map((action) => (
-                    <button key={action} className="ghost-button" onClick={() => onAuthorityAction(incident.id, action, notes)}>
-                      {action}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        <IncidentDetailContent
+          incident={incident}
+          layout="drawer"
+          loading={loading}
+          user={user}
+          onCommentCreate={onCommentCreate}
+          onCommentDelete={onCommentDelete}
+          onConfirm={onConfirm}
+          onDispute={onDispute}
+          onAuthorityAction={onAuthorityAction}
+        />
       </aside>
     </div>
   );
@@ -2629,10 +2947,23 @@ function writeToStorage(key, value) {
   }
 }
 
-function broadcast(type) {
+function incidentDetailPath(incidentId) {
+  return `/incidents/${incidentId}`;
+}
+
+function openIncidentPage(incidentId, router) {
+  const destination = incidentDetailPath(incidentId);
+  if (typeof window !== 'undefined') {
+    window.location.assign(destination);
+    return;
+  }
+  router.push(destination);
+}
+
+function broadcast(type, payload = {}) {
   if (typeof window !== 'undefined' && window.BroadcastChannel) {
     const channel = new BroadcastChannel('jeip-platform');
-    channel.postMessage({ type });
+    channel.postMessage({ type, ...payload });
     channel.close();
   }
 }

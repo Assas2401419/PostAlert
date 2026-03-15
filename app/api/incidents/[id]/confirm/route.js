@@ -5,7 +5,8 @@ import { requireSessionUser } from '../../../../../lib/session-user.js';
 export async function POST(_request, { params }) {
   try {
     const sessionUser = await requireSessionUser();
-    return ok(await confirmIncident(params.id, sessionUser.id));
+    const { id } = await params;
+    return ok(await confirmIncident(id, sessionUser.id));
   } catch (error) {
     return fail(error);
   }

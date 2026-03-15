@@ -1,5 +1,18 @@
-const CACHE_NAME = 'jeip-next-shell-v1';
+const CACHE_NAME = 'jeip-next-shell-v2';
 const ASSETS = ['/', '/auth', '/report', '/profile', '/trends', '/authority'];
+
+function isAppDataRequest(request, url) {
+  return (
+    url.pathname.startsWith('/_next/') ||
+    url.searchParams.has('_rsc') ||
+    request.headers.has('rsc') ||
+    request.headers.get('accept')?.includes('text/x-component')
+  );
+}
+
+function isStaticCacheableAsset(request) {
+  return ['style', 'script', 'image', 'font'].includes(request.destination);
+}
 
 function parseNotificationPayload(data) {
   try {
@@ -36,6 +49,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(async () => {
+        const cachedRoute = await caches.match(url.pathname);
+        return cachedRoute || caches.match('/');
+      })
+    );
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/') || isAppDataRequest(event.request, url)) {
+    return;
+  }
+
+  if (!isStaticCacheableAsset(event.request)) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) {
@@ -44,7 +75,7 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(event.request)
         .then((response) => {
-          if (!response.ok || event.request.url.includes('/api/')) {
+          if (!response.ok) {
             return response;
           }
           const copy = response.clone();
@@ -60,7 +91,7 @@ self.addEventListener('push', (event) => {
   const payload = parseNotificationPayload(event.data);
   const title = payload.title || 'JEIP incident alert';
   const incidentId = payload.incidentId || payload.incident?.id || '';
-  const destination = incidentId ? `/?incident=${incidentId}` : payload.url || '/';
+  const destination = incidentId ? `/incidents/${incidentId}` : payload.url || '/';
 
   event.waitUntil(
     self.registration.showNotification(title, {

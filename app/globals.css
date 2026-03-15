@@ -1,5 +1,38 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Gotham";
+  src:
+    local("Gotham Book"),
+    local("Gotham-Book"),
+    local("Gotham");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Gotham";
+  src:
+    local("Gotham Medium"),
+    local("Gotham-Medium"),
+    local("Gotham");
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Gotham";
+  src:
+    local("Gotham Bold"),
+    local("Gotham-Bold"),
+    local("Gotham");
+  font-style: normal;
+  font-weight: 700 800;
+  font-display: swap;
+}
+
 :root {
   --canvas: #f1eadf;
   --surface: #111826;
@@ -7,7 +40,9 @@
   --surface-3: #203048;
   --ink: #d9e0ea;
   --shadow: 0 32px 80px rgba(3, 8, 20, 0.3);
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  --font-body: "Gotham Book", "Gotham", "Gotham SSm", "Avenir Next", "Segoe UI", sans-serif;
+  --font-display: "Gotham Medium", "Gotham Book", "Gotham", "Gotham SSm", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--font-body);
 }
 
 * {
@@ -17,6 +52,7 @@
 body {
   margin: 0;
   min-width: 320px;
+  font-family: var(--font-body);
   background:
     radial-gradient(circle at top left, rgba(245, 158, 11, 0.16), transparent 26%),
     radial-gradient(circle at top right, rgba(56, 189, 248, 0.12), transparent 18%),
@@ -51,9 +87,18 @@ textarea {
   font: inherit;
 }
 
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
 .font-display {
-  font-family: "Avenir Next Condensed", "Arial Narrow", sans-serif;
-  letter-spacing: 0.01em;
+  font-family: var(--font-display);
+  font-style: normal;
+  font-stretch: normal;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .app-grid {
@@ -379,5 +424,314 @@ textarea {
 
   .drawer-panel {
     width: 100vw;
+  }
+}
+
+
+/* ========================================
+   In-App Notification System
+   ======================================== */
+
+.notification-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.25rem 1.25rem 0;
+  gap: 0.75rem;
+}
+
+.notification-wrapper {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 27rem;
+  transform: translateY(20px);
+}
+
+.incident-notification {
+  --notification-bg: #eff6ff;
+  --notification-border: rgba(59, 130, 246, 0.18);
+  --notification-accent: #2563eb;
+  --notification-accent-ink: #1d4ed8;
+  position: relative;
+  border-radius: 1rem;
+  border: 1px solid var(--notification-border);
+  border-left: 4px solid var(--notification-accent);
+  padding: 1rem;
+  background: var(--notification-bg);
+  box-shadow:
+    0 16px 40px rgba(15, 23, 38, 0.18),
+    0 4px 16px rgba(15, 23, 38, 0.08);
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.incident-notification:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 22px 48px rgba(15, 23, 38, 0.2),
+    0 8px 20px rgba(15, 23, 38, 0.12);
+}
+
+.notification-enter {
+  animation: notification-slide-down 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(var(--notification-index, 0) * 50ms);
+}
+
+.notification-exit {
+  animation: notification-slide-up 300ms cubic-bezier(0.55, 0, 1, 0.45) forwards;
+}
+
+@keyframes notification-slide-down {
+  from {
+    transform: translateY(-120px) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes notification-slide-up {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-120px);
+    opacity: 0;
+  }
+}
+
+.notification-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.notification-title-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.notification-heading-block {
+  min-width: 0;
+}
+
+.notification-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+  background: var(--notification-accent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--notification-accent) 18%, transparent);
+}
+
+.notification-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--notification-accent-ink);
+}
+
+.notification-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  color: #111827;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.notification-summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-summary svg {
+  flex-shrink: 0;
+  color: var(--notification-accent);
+}
+
+.notification-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  color: #475569;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.notification-close:hover {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+}
+
+.notification-body {
+  margin-bottom: 0.875rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.notification-location {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.94rem;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.notification-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.77rem;
+  color: #4b5563;
+}
+
+.notification-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+  font-size: 0.82rem;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.notification-button-primary,
+.notification-button-secondary {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.625rem;
+  border: 1px solid transparent;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 150ms ease;
+  min-height: 2.75rem;
+}
+
+.notification-button-primary {
+  background: var(--notification-accent);
+  color: #ffffff;
+  box-shadow: 0 10px 18px color-mix(in srgb, var(--notification-accent) 24%, transparent);
+}
+
+.notification-button-primary:hover {
+  filter: brightness(1.02);
+  transform: translateY(-1px);
+}
+
+.notification-button-primary:active {
+  transform: scale(0.98);
+}
+
+.notification-button-secondary {
+  background: rgba(255, 255, 255, 0.65);
+  color: #0f172a;
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+.notification-button-secondary:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.notification-progress-bar {
+  height: 4px;
+  background: rgba(15, 23, 42, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.notification-progress-fill {
+  height: 100%;
+  background: var(--notification-accent);
+  border-radius: 2px;
+  transition: width 50ms linear;
+}
+
+.notification-low {
+  --notification-bg: #dcfce7;
+  --notification-border: rgba(16, 185, 129, 0.24);
+  --notification-accent: #10b981;
+  --notification-accent-ink: #047857;
+}
+
+.notification-medium {
+  --notification-bg: #fef3c7;
+  --notification-border: rgba(245, 158, 11, 0.24);
+  --notification-accent: #f59e0b;
+  --notification-accent-ink: #b45309;
+}
+
+.notification-high {
+  --notification-bg: #ffedd5;
+  --notification-border: rgba(249, 115, 22, 0.24);
+  --notification-accent: #f97316;
+  --notification-accent-ink: #c2410c;
+}
+
+.notification-critical {
+  --notification-bg: #fee2e2;
+  --notification-border: rgba(220, 38, 38, 0.24);
+  --notification-accent: #dc2626;
+  --notification-accent-ink: #b91c1c;
+}
+
+/* Mobile responsiveness for notifications */
+@media (max-width: 480px) {
+  .notification-container {
+    padding: 0.75rem 0.75rem 0;
+  }
+
+  .notification-wrapper {
+    max-width: 100%;
+  }
+
+  .incident-notification {
+    border-radius: 1rem;
+    padding: 0.875rem;
+  }
+
+  .notification-button-primary,
+  .notification-button-secondary {
+    font-size: 0.6875rem;
+    padding: 0.5rem 0.75rem;
+    min-height: 2.5rem;
+  }
+
+  .notification-actions {
+    flex-direction: column;
   }
 }

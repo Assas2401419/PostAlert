@@ -6,11 +6,12 @@ export async function POST(request, { params }) {
   try {
     const sessionUser = await requireSessionUser();
     const body = await request.json().catch(() => ({}));
+    const { action, id } = await params;
     return ok({
       incident: await applyAuthorityAction(
         sessionUser.id,
-        params.id,
-        params.action,
+        id,
+        action,
         body.notes || ''
       )
     });
