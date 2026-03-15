@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   ArrowRight,
@@ -80,7 +81,7 @@ function NotificationCard({
   const severity = SEVERITY_CONFIG[incident.severity] || SEVERITY_CONFIG.medium;
   const CategoryIcon = CATEGORY_ICONS[incident.category] || AlertTriangle;
   const heading = `${severity.label} ${incident.subcategory || incident.category}`;
-  const meta = `Reported by ${incident.reporterName} • ${formatTimeAgo(incident.createdAt)}`;
+  const timeAgo = formatTimeAgo(incident.createdAt);
 
   useEffect(() => {
     if (isPaused || isExiting) {
@@ -107,16 +108,12 @@ function NotificationCard({
       onMouseEnter={() => onPause(notification.id)}
       onMouseLeave={() => onResume(notification.id)}
     >
+      <div className="notification-handle" />
+
       <div className="notification-header">
-        <div className="notification-title-group">
+        <div className="notification-app-chip">
           <span className="notification-dot" />
-          <div className="notification-heading-block">
-            <div className="notification-eyebrow">{heading}</div>
-            <div className="notification-summary">
-              <CategoryIcon aria-hidden="true" className="h-4 w-4" />
-              <span>{incident.notificationTitle || incident.title}</span>
-            </div>
-          </div>
+          <span>PostAlert live alert</span>
         </div>
         <button
           aria-label="Dismiss notification"
@@ -128,35 +125,47 @@ function NotificationCard({
         </button>
       </div>
 
-      <div className="notification-body">
-        <div className="notification-location">
-          <MapPinned aria-hidden="true" className="h-4 w-4" />
-          <span>{incident.address || `${incident.parish}, Jamaica`}</span>
+      <div className="notification-main">
+        <div className="notification-icon-shell">
+          <CategoryIcon aria-hidden="true" className="h-5 w-5" />
         </div>
-        <div className="notification-meta">
-          <Clock3 aria-hidden="true" className="h-3.5 w-3.5" />
-          <span>{meta}</span>
+        <div className="notification-body">
+          <div className="notification-title-row">
+            <div className="notification-eyebrow">{heading}</div>
+            <div className="notification-time">
+              <Clock3 aria-hidden="true" className="h-3.5 w-3.5" />
+              <span>{timeAgo}</span>
+            </div>
+          </div>
+          <div className="notification-summary">{incident.notificationTitle || incident.title}</div>
+          <div className="notification-location">
+            <MapPinned aria-hidden="true" className="h-4 w-4" />
+            <span>{incident.address || `${incident.parish}, Jamaica`}</span>
+          </div>
+          {incident.description ? (
+            <div className="notification-description">{incident.description}</div>
+          ) : null}
         </div>
-        {incident.description ? (
-          <div className="notification-description">{incident.description}</div>
-        ) : null}
       </div>
 
-      <div className="notification-actions">
+      <div className="notification-footer">
+        <div className="notification-meta">
+          <span className="notification-meta-label">Reported by</span>
+          <span>{incident.reporterName}</span>
+          {incident.parish ? (
+            <>
+              <span className="notification-meta-divider" />
+              <span>{incident.parish}</span>
+            </>
+          ) : null}
+        </div>
         <button
           className="notification-button-primary"
           onClick={() => onViewDetails(incident.id)}
           type="button"
         >
-          <span>View full report</span>
+          <span>Open report</span>
           <ArrowRight aria-hidden="true" className="h-4 w-4" />
-        </button>
-        <button
-          className="notification-button-secondary"
-          onClick={() => onDismiss(notification.id)}
-          type="button"
-        >
-          Dismiss
         </button>
       </div>
 
@@ -171,6 +180,7 @@ function NotificationCard({
 }
 
 export function NotificationContainer() {
+  const router = useRouter();
   const {
     notifications,
     pauseNotification,
@@ -201,7 +211,7 @@ export function NotificationContainer() {
             onResume={resumeNotification}
             onViewDetails={(incidentId) => {
               removeNotification(notification.id);
-              window.location.assign(`/incidents/${incidentId}`);
+              router.push(`/incidents/${incidentId}`);
             }}
           />
         </div>

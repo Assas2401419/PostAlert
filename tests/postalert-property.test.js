@@ -627,6 +627,10 @@ test('10.4 authority action properties', async () => {
     (await applyAuthorityAction(officer.id, verifyIncident.id, 'verify', 'Validated')).status,
     'authority_verified'
   );
+  await expectPlatformError(
+    () => applyAuthorityAction(officer.id, verifyIncident.id, 'respond', 'Second action'),
+    4093
+  );
   assert.equal(
     (await applyAuthorityAction(officer.id, respondingIncident.id, 'respond', 'Team moving')).status,
     'responding'

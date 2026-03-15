@@ -16,11 +16,50 @@ import { haversineKm, severityIndex } from './utils.js';
 
 const NotificationContext = createContext(null);
 
-const BROADCAST_CHANNEL_NAME = 'postalert-platform';
+const BROADCAST_CHANNEL_NAME = 'jeip-platform';
 const EXIT_ANIMATION_DURATION = 300;
 const MAX_VISIBLE_NOTIFICATIONS = 4;
 const NOTIFICATION_DISPLAY_DURATION = 8000;
 const NOTIFICATION_DEDUPE_WINDOW = 15000;
+const NOTIFICATION_SOUND_COOLDOWN = 1200;
+
+function playNotificationTone() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    return;
+  }
+
+  try {
+    const context = new AudioContextClass();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const startAt = context.currentTime;
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(840, startAt);
+    oscillator.frequency.linearRampToValueAtTime(1120, startAt + 0.16);
+
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.035, startAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.24);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    context.resume().catch(() => {});
+    oscillator.start(startAt);
+    oscillator.stop(startAt + 0.26);
+    oscillator.onended = () => {
+      context.close().catch(() => {});
+    };
+  } catch {
+    // Ignore environments that reject programmatic audio playback.
+  }
+}
 
 function mergePrefs(prefs = {}) {
   return {
@@ -117,7 +156,17 @@ export function NotificationProvider({ children }) {
   const exitTimersRef = useRef(new Map());
   const seenIncidentsRef = useRef(new Map());
   const knownNotificationIdsRef = useRef(new Set());
+  const lastSoundAtRef = useRef(0);
   const profileNotificationsReadyRef = useRef(false);
+
+  const maybePlayNotificationTone = useCallback(() => {
+    const now = Date.now();
+    if (now - lastSoundAtRef.current < NOTIFICATION_SOUND_COOLDOWN) {
+      return;
+    }
+    lastSoundAtRef.current = now;
+    playNotificationTone();
+  }, []);
 
   const addNotification = useCallback((incidentInput, options = {}) => {
     const incident = normalizeIncident(incidentInput, options.fallbackBody);
@@ -140,9 +189,12 @@ export function NotificationProvider({ children }) {
       const withoutSameIncident = current.filter((entry) => entry.incident.id !== incident.id);
       return [nextNotification, ...withoutSameIncident].slice(0, MAX_VISIBLE_NOTIFICATIONS);
     });
+    if (options.playSound !== false) {
+      maybePlayNotificationTone();
+    }
 
     return nextNotification.id;
-  }, []);
+  }, [maybePlayNotificationTone]);
 
   const removeNotification = useCallback((notificationId) => {
     setNotifications((current) =>

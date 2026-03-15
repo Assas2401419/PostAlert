@@ -59,6 +59,7 @@ import { MapboxLocationPicker } from './mapbox-location-picker.jsx';
 const INCIDENT_CACHE_KEY = 'postalert_cached_incidents';
 const MAPBOX_ENABLED = Boolean(process.env.NEXT_PUBLIC_MAPBOX_TOKEN);
 const REPORT_QUEUE_KEY = 'postalert_report_queue';
+const AUTHORITY_ACTION_OPTIONS = ['verify', 'respond', 'resolve', 'dismiss'];
 
 export function PlatformShell({ page, incidentId = '' }) {
   const router = useRouter();
@@ -687,8 +688,20 @@ export function PlatformShell({ page, incidentId = '' }) {
       broadcast('refresh-profile');
       await Promise.all([loadIncidents(1, false), loadAuthorityData()]);
       setFlash({ tone: 'success', message: `Authority action "${action}" recorded.` });
+      return true;
     } catch (error) {
+      if (error.code === 4093) {
+        await Promise.all([
+          loadAuthorityData(),
+          detailIncident?.id === incidentId ? apiRequest(`/api/incidents/${incidentId}`) : Promise.resolve(null)
+        ]).then(([, detail]) => {
+          if (detail?.incident) {
+            setDetailIncident(detail.incident);
+          }
+        }).catch(() => {});
+      }
       setFlash({ tone: 'error', message: error.message });
+      return false;
     }
   }
 
@@ -963,7 +976,7 @@ export function PlatformShell({ page, incidentId = '' }) {
             onFiltersChange={setFilters}
             onPageChange={(nextPage) => loadIncidents(nextPage, false)}
             onViewChange={setFeedView}
-            onOpenIncident={(incidentId) => openIncidentPage(incidentId, router)}
+            onOpenIncident={(incidentId) => openIncidentPreview(incidentId, router, searchParams)}
             selectedIncidentId={selectedIncidentId}
             userLocation={currentUser?.lastKnownLocation}
           />
@@ -1066,7 +1079,7 @@ export function PlatformShell({ page, incidentId = '' }) {
           incident={detailIncident}
           loading={loadingDetail}
           user={currentUser}
-          onClose={() => router.push('/feed')}
+          onClose={() => closeIncidentPreview(router, searchParams)}
           onConfirm={() => handleVote('confirm')}
           onCommentCreate={createIncidentComment}
           onCommentDelete={deleteIncidentComment}
@@ -1657,6 +1670,55 @@ function IncidentDetailPage({
   );
 }
 
+function AuthorityActionComposer({
+  actionLabel = 'Record authority action',
+  buttonGridClassName = 'sm:grid-cols-2',
+  incident,
+  notes,
+  onAction,
+  onNotesChange,
+  pendingAction = '',
+  readOnly = false
+}) {
+  const recordedAction = incident.authorityActions?.[0] || null;
+  const controlsDisabled = readOnly || Boolean(recordedAction) || Boolean(pendingAction);
+
+  return (
+    <>
+      <div className="section-label">{actionLabel}</div>
+      <textarea
+        className="field min-h-24"
+        disabled={controlsDisabled}
+        onChange={(event) => onNotesChange(event.target.value)}
+        placeholder="Add operational notes for the public record."
+        value={notes}
+      />
+      {recordedAction ? (
+        <div className="rounded-[24px] border border-amber-500/30 bg-amber-500/12 p-4 text-sm text-amber-100">
+          <div className="font-semibold text-white">Authority action already recorded</div>
+          <div className="mt-2">
+            {recordedAction.action} by {recordedAction.authorityName} · {formatDateTime(recordedAction.createdAt)}
+          </div>
+          {recordedAction.notes ? <div className="mt-2 text-amber-100/90">{recordedAction.notes}</div> : null}
+        </div>
+      ) : null}
+      <div className={`grid gap-2 ${buttonGridClassName}`}>
+        {AUTHORITY_ACTION_OPTIONS.map((action) => (
+          <button
+            key={action}
+            className={`ghost-button ${action === 'dismiss' ? '!border-rose-500/30 !text-rose-100' : ''}`}
+            disabled={controlsDisabled}
+            onClick={() => onAction(action)}
+            type="button"
+          >
+            {pendingAction === action ? 'Recording…' : action}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function IncidentDetailContent({
   incident,
   layout = 'drawer',
@@ -1670,6 +1732,7 @@ function IncidentDetailContent({
 }) {
   const [notes, setNotes] = useState('');
   const [comment, setComment] = useState('');
+  const [pendingAuthorityAction, setPendingAuthorityAction] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const sectionClassName =
     layout === 'page' ? 'surface-card space-y-5' : 'surface-muted';
@@ -1677,8 +1740,18 @@ function IncidentDetailContent({
   useEffect(() => {
     setNotes('');
     setComment('');
+    setPendingAuthorityAction('');
     setSelectedPhoto(null);
   }, [incident?.id]);
+
+  async function submitAuthorityAction(action) {
+    setPendingAuthorityAction(action);
+    const success = await onAuthorityAction(incident.id, action, notes);
+    if (success) {
+      setNotes('');
+    }
+    setPendingAuthorityAction('');
+  }
 
   if (loading && !incident) {
     return (
@@ -1889,25 +1962,15 @@ function IncidentDetailContent({
 
             {user?.role === 'authority' || user?.role === 'admin' ? (
               <div className="surface-card space-y-4">
-                <div className="section-label">Record authority action</div>
-                <textarea
-                  className="field min-h-24"
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Add operational notes for the public record."
-                  value={notes}
+                <AuthorityActionComposer
+                  actionLabel="Record authority action"
+                  buttonGridClassName="sm:grid-cols-2"
+                  incident={incident}
+                  notes={notes}
+                  onAction={submitAuthorityAction}
+                  onNotesChange={setNotes}
+                  pendingAction={pendingAuthorityAction}
                 />
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {['verify', 'respond', 'resolve', 'dismiss'].map((action) => (
-                    <button
-                      key={action}
-                      className="ghost-button"
-                      onClick={() => onAuthorityAction(incident.id, action, notes)}
-                      type="button"
-                    >
-                      {action}
-                    </button>
-                  ))}
-                </div>
               </div>
             ) : null}
           </div>
@@ -1932,25 +1995,15 @@ function IncidentDetailContent({
 
             {user?.role === 'authority' || user?.role === 'admin' ? (
               <div className="space-y-3 rounded-[28px] border border-white/10 bg-white/5 p-4">
-                <div className="section-label">Authority action</div>
-                <textarea
-                  className="field min-h-24"
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Add operational notes for the public record."
-                  value={notes}
+                <AuthorityActionComposer
+                  actionLabel="Authority action"
+                  buttonGridClassName="sm:grid-cols-4"
+                  incident={incident}
+                  notes={notes}
+                  onAction={submitAuthorityAction}
+                  onNotesChange={setNotes}
+                  pendingAction={pendingAuthorityAction}
                 />
-                <div className="grid gap-2 sm:grid-cols-4">
-                  {['verify', 'respond', 'resolve', 'dismiss'].map((action) => (
-                    <button
-                      key={action}
-                      className="ghost-button"
-                      onClick={() => onAuthorityAction(incident.id, action, notes)}
-                      type="button"
-                    >
-                      {action}
-                    </button>
-                  ))}
-                </div>
               </div>
             ) : null}
           </>
@@ -3103,6 +3156,23 @@ function ReportWizard({ canPost, onSubmit, user }) {
 
 function AuthorityScreen({ dashboard, filters, pendingAuthorities, user, onAction, onFiltersChange, onApprove }) {
   const [notesByIncident, setNotesByIncident] = useState({});
+  const [pendingByIncident, setPendingByIncident] = useState({});
+
+  async function submitAction(incidentId, action) {
+    setPendingByIncident((current) => ({ ...current, [incidentId]: action }));
+    const success = await onAction(incidentId, action, notesByIncident[incidentId] || '');
+    if (success) {
+      setNotesByIncident((current) => ({
+        ...current,
+        [incidentId]: ''
+      }));
+    }
+    setPendingByIncident((current) => {
+      const next = { ...current };
+      delete next[incidentId];
+      return next;
+    });
+  }
 
   if (!dashboard) {
     return <div className="surface-card text-sm text-slate-400">Loading authority dashboard…</div>;
@@ -3177,29 +3247,21 @@ function AuthorityScreen({ dashboard, filters, pendingAuthorities, user, onActio
                   <div className="text-sm text-slate-400">{formatAgo(incident.createdAt)} · {incident.confirmationCount} confirmations</div>
                 </div>
                 <div className="w-full space-y-3 lg:w-auto">
-                  <textarea
-                    className="field min-h-24 lg:min-w-80"
-                    placeholder="Add public notes for this action."
-                    value={notesByIncident[incident.id] || ''}
-                    onChange={(event) =>
+                  <AuthorityActionComposer
+                    actionLabel="Record authority action"
+                    buttonGridClassName="sm:grid-cols-2 lg:grid-cols-4"
+                    incident={incident}
+                    notes={notesByIncident[incident.id] || ''}
+                    onAction={(action) => submitAction(incident.id, action)}
+                    onNotesChange={(value) =>
                       setNotesByIncident((current) => ({
                         ...current,
-                        [incident.id]: event.target.value
+                        [incident.id]: value
                       }))
                     }
+                    pendingAction={pendingByIncident[incident.id] || ''}
+                    readOnly={dashboard.readOnly}
                   />
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  {['verify', 'respond', 'resolve', 'dismiss'].map((action) => (
-                    <button
-                      key={action}
-                      className="ghost-button"
-                      disabled={dashboard.readOnly}
-                      onClick={() => onAction(incident.id, action, notesByIncident[incident.id] || '')}
-                    >
-                      {action}
-                    </button>
-                  ))}
-                  </div>
                 </div>
               </div>
             </div>
@@ -3924,6 +3986,17 @@ function incidentDetailPath(incidentId) {
   return `/incidents/${incidentId}`;
 }
 
+function feedIncidentPath(searchParams, incidentId = '') {
+  const nextSearchParams = new URLSearchParams(searchParams?.toString() || '');
+  if (incidentId) {
+    nextSearchParams.set('incident', incidentId);
+  } else {
+    nextSearchParams.delete('incident');
+  }
+  const query = nextSearchParams.toString();
+  return query ? `/feed?${query}` : '/feed';
+}
+
 function normalizeAuthMode(value) {
   return ['login', 'register', 'authority'].includes(value) ? value : 'login';
 }
@@ -3966,12 +4039,15 @@ function getAuthFieldErrors(error) {
 }
 
 function openIncidentPage(incidentId, router) {
-  const destination = incidentDetailPath(incidentId);
-  if (typeof window !== 'undefined') {
-    window.location.assign(destination);
-    return;
-  }
-  router.push(destination);
+  router.push(incidentDetailPath(incidentId));
+}
+
+function openIncidentPreview(incidentId, router, searchParams) {
+  router.push(feedIncidentPath(searchParams, incidentId), { scroll: false });
+}
+
+function closeIncidentPreview(router, searchParams) {
+  router.replace(feedIncidentPath(searchParams), { scroll: false });
 }
 
 function broadcast(type, payload = {}) {
