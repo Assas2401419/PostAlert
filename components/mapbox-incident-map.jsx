@@ -66,10 +66,19 @@ export function MapboxIncidentMap({
   const mapRef = useRef(null);
   const popupRef = useRef(null);
   const resizeHandlerRef = useRef(null);
+  const onIncidentSelectRef = useRef(onIncidentSelect);
+  const highlightedIdRef = useRef(highlightedIncidentId);
+  const singleIncidentRef = useRef(singleIncident);
+  const mapReadyRef = useRef(false);
   const [mapError, setMapError] = useState('');
 
+  // Keep refs in sync without triggering re-renders
   incidentsRef.current = incidents;
+  onIncidentSelectRef.current = onIncidentSelect;
+  highlightedIdRef.current = highlightedIncidentId;
+  singleIncidentRef.current = singleIncident;
 
+  // Initialize map only once
   useEffect(() => {
     if (!hasMapboxToken() || mapRef.current || !containerRef.current) {
       return undefined;
@@ -86,7 +95,7 @@ export function MapboxIncidentMap({
 
         mapboxgl.accessToken = MAPBOX_TOKEN;
 
-        const leadIncident = singleIncident ? incidentsRef.current[0] : null;
+        const leadIncident = singleIncidentRef.current ? incidentsRef.current[0] : null;
         const map = new mapboxgl.Map({
           container: containerRef.current,
           style: MAPBOX_STYLE,
@@ -122,8 +131,8 @@ export function MapboxIncidentMap({
         map.on('load', () => {
           map.addSource(INCIDENT_SOURCE_ID, {
             type: 'geojson',
-            data: createIncidentFeatureCollection(incidentsRef.current, highlightedIncidentId),
-            cluster: !singleIncident,
+            data: createIncidentFeatureCollection(incidentsRef.current, highlightedIdRef.current),
+            cluster: !singleIncidentRef.current,
             clusterMaxZoom: 12,
             clusterRadius: 48
           });
@@ -201,7 +210,7 @@ export function MapboxIncidentMap({
 
           map.addSource(USER_SOURCE_ID, {
             type: 'geojson',
-            data: createUserCollection(userLocation)
+            data: createEmptyCollection()
           });
 
           map.addLayer({
@@ -277,8 +286,8 @@ export function MapboxIncidentMap({
             }
 
             const incident = incidentsRef.current.find((entry) => entry.id === feature.properties.id);
-            if (incident && onIncidentSelect) {
-              onIncidentSelect(incident);
+            if (incident && onIncidentSelectRef.current) {
+              onIncidentSelectRef.current(incident);
             }
           });
 
@@ -289,6 +298,8 @@ export function MapboxIncidentMap({
               duration: 0
             });
           }
+
+          mapReadyRef.current = true;
         });
 
         resizeHandlerRef.current = () => {
@@ -304,6 +315,7 @@ export function MapboxIncidentMap({
 
     return () => {
       cancelled = true;
+      mapReadyRef.current = false;
       if (resizeHandlerRef.current) {
         window.removeEventListener('resize', resizeHandlerRef.current);
         resizeHandlerRef.current = null;
@@ -313,32 +325,63 @@ export function MapboxIncidentMap({
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [highlightedIncidentId, initialZoom, onIncidentSelect, singleIncident, userLocation]);
+  }, [initialZoom]); // Only re-initialize if initialZoom changes (which it shouldn't)
 
+  // Update data sources when incidents/userLocation change (without re-initializing map)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map?.isStyleLoaded()) {
+    if (!map || !mapReadyRef.current) {
       return;
     }
 
-    const incidentSource = map.getSource(INCIDENT_SOURCE_ID);
-    if (incidentSource?.setData) {
-      incidentSource.setData(createIncidentFeatureCollection(incidents, highlightedIncidentId));
+    let styleLoadHandler = null;
+
+    // Wait for style to be loaded
+    if (!map.isStyleLoaded()) {
+      styleLoadHandler = () => {
+        updateMapData();
+      };
+      map.once('style.load', styleLoadHandler);
+      return () => {
+        if (styleLoadHandler) {
+          map.off('style.load', styleLoadHandler);
+        }
+      };
     }
 
-    const userSource = map.getSource(USER_SOURCE_ID);
-    if (userSource?.setData) {
-      userSource.setData(createUserCollection(userLocation));
+    updateMapData();
+
+    function updateMapData() {
+      const incidentSource = map.getSource(INCIDENT_SOURCE_ID);
+      if (incidentSource?.setData) {
+        incidentSource.setData(createIncidentFeatureCollection(incidents, highlightedIncidentId));
+      }
+
+      const userSource = map.getSource(USER_SOURCE_ID);
+      if (userSource?.setData) {
+        userSource.setData(createUserCollection(userLocation));
+      }
     }
 
-    if (singleIncident && incidents[0]) {
-      map.easeTo({
-        center: [Number(incidents[0].longitude), Number(incidents[0].latitude)],
-        zoom: 13.5,
-        duration: 600
-      });
+    return undefined;
+  }, [highlightedIncidentId, incidents, userLocation]);
+
+  // Handle single incident view centering separately
+  const firstIncidentId = incidents[0]?.id;
+  useEffect(() => {
+    const map = mapRef.current;
+    const firstIncident = incidents[0];
+    if (!map || !mapReadyRef.current || !singleIncident || !firstIncident) {
+      return;
     }
-  }, [highlightedIncidentId, incidents, singleIncident, userLocation]);
+
+    // Only center if this is a single incident view and we have an incident
+    map.easeTo({
+      center: [Number(firstIncident.longitude), Number(firstIncident.latitude)],
+      zoom: 13.5,
+      duration: 600
+    });
+  }, [singleIncident, firstIncidentId, incidents]); // Re-center when the incident changes
 
   if (!hasMapboxToken()) {
     return (

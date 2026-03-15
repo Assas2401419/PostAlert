@@ -16,6 +16,7 @@ process.env.POSTALERT_DATA_FILE = TEST_DB_FILE;
 const {
   CATEGORY_SUBCATEGORIES,
   DEFAULT_NOTIFICATION_PREFS,
+  INCIDENT_PHOTO_UPLOAD,
   MAP_BOUNDS,
   PARISHES,
   PARISH_CENTERS
@@ -450,7 +451,7 @@ test('3.8 photo validation properties', async () => {
             {
               name: 'large.png',
               type: 'image/png',
-              size: 6 * 1024 * 1024,
+              size: INCIDENT_PHOTO_UPLOAD.maxBytes + 1,
               dataUrl: 'data:image/png;base64,CCCC'
             }
           ]

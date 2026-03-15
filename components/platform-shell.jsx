@@ -38,6 +38,7 @@ import {
   CATEGORY_SUBCATEGORIES,
   DEFAULT_NOTIFICATION_PREFS,
   FALLBACK_CATEGORY_ICON,
+  INCIDENT_PHOTO_UPLOAD,
   MAP_BOUNDS,
   PARISH_CENTERS,
   PARISHES,
@@ -45,11 +46,12 @@ import {
 } from '../lib/constants.js';
 import {
   createStartTime,
+  estimateDataUrlBytes,
   formatAgo,
   formatDateTime,
   haversineKm,
+  normalizeIncidentPhoto,
   projectPoint,
-  readFileAsDataUrl,
   withinJamaica
 } from '../lib/utils.js';
 import { createSupabaseBrowserClient } from '../lib/supabase/client.js';
@@ -58,6 +60,7 @@ import { MapboxLocationPicker } from './mapbox-location-picker.jsx';
 
 const INCIDENT_CACHE_KEY = 'postalert_cached_incidents';
 const MAPBOX_ENABLED = Boolean(process.env.NEXT_PUBLIC_MAPBOX_TOKEN);
+const PLATFORM_BROADCAST_CHANNEL_NAME = 'jeip-platform';
 const REPORT_QUEUE_KEY = 'postalert_report_queue';
 const AUTHORITY_ACTION_OPTIONS = ['verify', 'respond', 'resolve', 'dismiss'];
 
@@ -152,7 +155,7 @@ export function PlatformShell({ page, incidentId = '' }) {
     if (typeof window === 'undefined' || !window.BroadcastChannel) {
       return;
     }
-    const channel = new BroadcastChannel('postalert-platform');
+    const channel = new BroadcastChannel(PLATFORM_BROADCAST_CHANNEL_NAME);
     channelRef.current = channel;
     channel.onmessage = (event) => {
       if (event.data?.type === 'refresh-incidents') {
@@ -2137,17 +2140,17 @@ function CameraCaptureDialog({ open, onCapture, onClose }) {
       return;
     }
 
-    const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
-    const photo = {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      dataUrl: await readFileAsDataUrl(file)
-    };
-
-    onCapture(photo);
-    setCapturing(false);
-    onClose();
+    try {
+      const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const photo = await normalizeIncidentPhoto(file);
+      onCapture(photo);
+      setCameraError('');
+      onClose();
+    } catch (error) {
+      setCameraError(error.message || 'A photo could not be prepared for upload.');
+    } finally {
+      setCapturing(false);
+    }
   }
 
   if (!open) {
@@ -2770,6 +2773,7 @@ function AuthScreen({
 function ReportWizard({ canPost, onSubmit, user }) {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [processingPhotos, setProcessingPhotos] = useState(false);
   const [error, setError] = useState('');
   const [cameraOpen, setCameraOpen] = useState(false);
   const galleryInputRef = useRef(null);
@@ -2786,7 +2790,7 @@ function ReportWizard({ canPost, onSubmit, user }) {
   });
   const manualParishFallback =
     PARISHES.find((parish) => form.address.includes(parish)) || user?.parish || 'Kingston';
-  const photoLimitReached = form.photos.length >= 3;
+  const photoLimitReached = form.photos.length >= INCIDENT_PHOTO_UPLOAD.maxCount;
 
   function appendPhotos(nextPhotos) {
     if (!nextPhotos.length) {
@@ -2794,8 +2798,9 @@ function ReportWizard({ canPost, onSubmit, user }) {
     }
 
     let limitReached = false;
+    let payloadTooLarge = false;
     setForm((current) => {
-      const remainingSlots = Math.max(0, 3 - current.photos.length);
+      const remainingSlots = Math.max(0, INCIDENT_PHOTO_UPLOAD.maxCount - current.photos.length);
       if (!remainingSlots) {
         limitReached = true;
         return current;
@@ -2806,13 +2811,32 @@ function ReportWizard({ canPost, onSubmit, user }) {
         limitReached = true;
       }
 
+      const candidatePhotos = [...current.photos, ...photosToAdd];
+      const totalBytes = candidatePhotos.reduce(
+        (sum, photo) => sum + estimateDataUrlBytes(photo.dataUrl),
+        0
+      );
+      if (totalBytes > INCIDENT_PHOTO_UPLOAD.maxTotalBytes) {
+        payloadTooLarge = true;
+        return current;
+      }
+
       return {
         ...current,
-        photos: [...current.photos, ...photosToAdd]
+        photos: candidatePhotos
       };
     });
 
-    setError(limitReached ? 'You can upload up to 3 photos per report.' : '');
+    if (payloadTooLarge) {
+      setError('Photos are still too large together. Remove one or choose smaller images.');
+      return;
+    }
+
+    setError(
+      limitReached
+        ? `You can upload up to ${INCIDENT_PHOTO_UPLOAD.maxCount} photos per report.`
+        : ''
+    );
   }
 
   async function handleFiles(fileList) {
@@ -2820,21 +2844,23 @@ function ReportWizard({ canPost, onSubmit, user }) {
     if (!selectedFiles.length) {
       return;
     }
-    const files = selectedFiles.slice(0, 3);
-    const invalid = files.find((file) => !['image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024);
+    const files = selectedFiles.slice(0, INCIDENT_PHOTO_UPLOAD.maxCount);
+    const invalid = files.find(
+      (file) => !INCIDENT_PHOTO_UPLOAD.allowedTypes.includes(file.type)
+    );
     if (invalid) {
-      setError('Only JPEG or PNG files up to 5MB are allowed.');
+      setError('Only JPEG or PNG files are allowed.');
       return;
     }
-    const photos = await Promise.all(
-      files.map(async (file) => ({
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        dataUrl: await readFileAsDataUrl(file)
-      }))
-    );
-    appendPhotos(photos);
+    try {
+      setProcessingPhotos(true);
+      const photos = await Promise.all(files.map((file) => normalizeIncidentPhoto(file)));
+      appendPhotos(photos);
+    } catch (processingError) {
+      setError(processingError.message || 'A photo could not be prepared for upload.');
+    } finally {
+      setProcessingPhotos(false);
+    }
   }
 
   function handlePhotoInputChange(event) {
@@ -2878,6 +2904,10 @@ function ReportWizard({ canPost, onSubmit, user }) {
     }
     if (!withinJamaica(form.latitude, form.longitude)) {
       setError('Location must be within Jamaica.');
+      return;
+    }
+    if (processingPhotos) {
+      setError('Please wait while photos finish preparing for upload.');
       return;
     }
     setSubmitting(true);
@@ -3046,21 +3076,23 @@ function ReportWizard({ canPost, onSubmit, user }) {
               <div className="text-right text-xs text-slate-400">{form.description.length} / 500 characters</div>
             </label>
             <label className="space-y-2">
-              <span className="section-label">Upload up to 3 photos</span>
+              <span className="section-label">
+                Upload up to {INCIDENT_PHOTO_UPLOAD.maxCount} photos
+              </span>
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
                   type="button"
                   className="ghost-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={photoLimitReached}
+                  disabled={photoLimitReached || processingPhotos}
                   onClick={() => galleryInputRef.current?.click()}
                 >
                   <Upload aria-hidden="true" className="h-4 w-4" />
-                  Upload photo
+                  {processingPhotos ? 'Preparing photo' : 'Upload photo'}
                 </button>
                 <button
                   type="button"
                   className="ghost-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={photoLimitReached}
+                  disabled={photoLimitReached || processingPhotos}
                   onClick={() => setCameraOpen(true)}
                 >
                   <Camera aria-hidden="true" className="h-4 w-4" />
@@ -3076,7 +3108,7 @@ function ReportWizard({ canPost, onSubmit, user }) {
                 onChange={handlePhotoInputChange}
               />
               <div className="text-xs text-slate-400">
-                JPEG or PNG up to 5MB each. Use camera opens a live camera view for a fresh incident photo.
+                JPEG or PNG only. Photos are optimized for upload and should stay around {Math.round(INCIDENT_PHOTO_UPLOAD.maxBytes / 1024)} KB each.
               </div>
             </label>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -3144,8 +3176,8 @@ function ReportWizard({ canPost, onSubmit, user }) {
               <ChevronRight aria-hidden="true" className="h-4 w-4" />
             </button>
           ) : (
-            <button type="submit" className="primary-button" disabled={submitting}>
-              {submitting ? 'Submitting…' : 'Submit incident'}
+            <button type="submit" className="primary-button" disabled={submitting || processingPhotos}>
+              {processingPhotos ? 'Preparing photos…' : submitting ? 'Submitting…' : 'Submit incident'}
             </button>
           )}
         </div>
@@ -4052,7 +4084,7 @@ function closeIncidentPreview(router, searchParams) {
 
 function broadcast(type, payload = {}) {
   if (typeof window !== 'undefined' && window.BroadcastChannel) {
-    const channel = new BroadcastChannel('postalert-platform');
+    const channel = new BroadcastChannel(PLATFORM_BROADCAST_CHANNEL_NAME);
     channel.postMessage({ type, ...payload });
     channel.close();
   }
@@ -4068,7 +4100,12 @@ async function apiRequest(path, { method = 'GET', body } = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(data.error || 'Request failed');
+    const error = new Error(
+      data.error ||
+        (response.status === 413
+          ? 'Incident attachments are too large. Remove some photos and try again.'
+          : 'Request failed')
+    );
     error.code = data.code;
     error.status = response.status;
     throw error;
