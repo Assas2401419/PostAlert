@@ -1,0 +1,9 @@
+{
+  "name": "Jamaica Emergency Intelligence Platform",
+  "short_name": "JEIP",
+  "display": "standalone",
+  "background_color": "#f4efe5",
+  "theme_color": "#0f1726",
+  "start_url": "/",
+  "icons": []
+}

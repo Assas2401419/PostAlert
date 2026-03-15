@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "name": "Update Docs on Source Change",
+  "description": "Automatically asks the agent to update documentation (README or /docs folder) when source files are modified",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.js",
+      "*.jsx",
+      "*.ts",
+      "*.tsx",
+      "*.mjs",
+      "*.cjs",
+      "package.json",
+      "next.config.mjs",
+      "vercel.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A source file was just modified. Review the changes and determine if any documentation needs to be updated. If the change affects public APIs, configuration, setup instructions, or user-facing features, update the README.md or relevant files in the /docs folder if it exists. Only make documentation changes if they are meaningful and necessary."
+  }
+}

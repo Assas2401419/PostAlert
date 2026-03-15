@@ -1,0 +1,277 @@
+{
+  "users": [
+    {
+      "id": "XGrL5rAV6b_Z74YZZnVop",
+      "email": "admin@jeip.gov.jm",
+      "passwordHash": "$2b$10$oOesEBlMOYhfkqxf5oUMIO9d/9eMKITWJc4R6YQtSNuNV1MUSKmE.",
+      "name": "JEIP Admin",
+      "parish": "Kingston",
+      "role": "admin",
+      "verified": true,
+      "organizationName": "JEIP Operations",
+      "badgeNumber": "ADM-001",
+      "createdAt": "2026-03-15T00:48:43.424Z",
+      "reputationScore": 92,
+      "restrictedUntil": null,
+      "permanentPostingBan": false,
+      "notificationPrefs": {
+        "enabled": false,
+        "categories": [
+          "Crime",
+          "Accident",
+          "Natural Disaster",
+          "Infrastructure",
+          "Community Alert"
+        ],
+        "minSeverity": "high",
+        "radiusKm": 5,
+        "quietHoursStart": "22:00",
+        "quietHoursEnd": "06:00"
+      },
+      "deviceTokens": [],
+      "lastKnownLocation": {
+        "lat": 17.9712,
+        "lng": -76.7928
+      }
+    },
+    {
+      "id": "1dxJtdyShvQ1bVfe4eZ3-",
+      "email": "officer@jcf.gov.jm",
+      "passwordHash": "$2b$10$4yX9RuhwCiffH6./dtrKgOrvK0VY2TEkZr0I2QpSN8B7lnejBa3ba",
+      "name": "D. Williams",
+      "parish": "St. Andrew",
+      "role": "authority",
+      "verified": true,
+      "organizationName": "Jamaica Constabulary Force",
+      "badgeNumber": "JCF-4421",
+      "createdAt": "2026-03-15T00:48:43.424Z",
+      "reputationScore": 88,
+      "restrictedUntil": null,
+      "permanentPostingBan": false,
+      "notificationPrefs": {
+        "enabled": true,
+        "categories": [
+          "Crime",
+          "Accident",
+          "Natural Disaster",
+          "Infrastructure",
+          "Community Alert"
+        ],
+        "minSeverity": "high",
+        "radiusKm": 5,
+        "quietHoursStart": "22:00",
+        "quietHoursEnd": "06:00"
+      },
+      "deviceTokens": [],
+      "lastKnownLocation": {
+        "lat": 18.0226,
+        "lng": -76.7936
+      }
+    },
+    {
+      "id": "K9nzuV9Il37qOm-zz33ZA",
+      "email": "marlon@example.com",
+      "passwordHash": "$2b$10$B/gVTxGa.gdD3oLlBn0JHOqrJcJl4.b3Jkzkd4M7NODnWAJELAdty",
+      "name": "Marlon Brown",
+      "parish": "Kingston",
+      "role": "citizen",
+      "verified": true,
+      "createdAt": "2026-03-15T00:48:43.424Z",
+      "reputationScore": 64,
+      "restrictedUntil": null,
+      "permanentPostingBan": false,
+      "notificationPrefs": {
+        "enabled": false,
+        "categories": [
+          "Crime",
+          "Accident",
+          "Natural Disaster",
+          "Infrastructure",
+          "Community Alert"
+        ],
+        "minSeverity": "high",
+        "radiusKm": 5,
+        "quietHoursStart": "22:00",
+        "quietHoursEnd": "06:00"
+      },
+      "deviceTokens": [],
+      "lastKnownLocation": {
+        "lat": 17.9798,
+        "lng": -76.7939
+      }
+    }
+  ],
+  "incidents": [
+    {
+      "id": "iV8vcg8eS63kKhmUJTmrl",
+      "reporterId": "K9nzuV9Il37qOm-zz33ZA",
+      "category": "Crime",
+      "subcategory": "Robbery",
+      "title": "Robbery in St. Andrew",
+      "description": "Armed robbery reported near Half-Way Tree transport centre. Motorists advised to avoid the curbside lane.",
+      "severity": "high",
+      "status": "active",
+      "credibility": "verified",
+      "confirmationCount": 5,
+      "disputeCount": 0,
+      "anonymous": false,
+      "photos": [],
+      "parish": "St. Andrew",
+      "latitude": 18.0125,
+      "longitude": -76.7933,
+      "address": "St. Andrew, Jamaica",
+      "moderation": {
+        "sensitive": true,
+        "flagged": false
+      },
+      "authorityActions": [],
+      "createdAt": "2026-03-14T12:48:43.869Z",
+      "updatedAt": "2026-03-14T21:48:43.869Z"
+    },
+    {
+      "id": "qt6XJQou2a91nvktuH-37",
+      "reporterId": "K9nzuV9Il37qOm-zz33ZA",
+      "category": "Infrastructure",
+      "subcategory": "Power Outage",
+      "title": "Power Outage in Kingston",
+      "description": "Multiple blocks without electricity after line failure near Spanish Town Road.",
+      "severity": "medium",
+      "status": "active",
+      "credibility": "verified",
+      "confirmationCount": 5,
+      "disputeCount": 0,
+      "anonymous": false,
+      "photos": [],
+      "parish": "Kingston",
+      "latitude": 17.981,
+      "longitude": -76.8272,
+      "address": "Kingston, Jamaica",
+      "moderation": {
+        "sensitive": false,
+        "flagged": false
+      },
+      "authorityActions": [],
+      "createdAt": "2026-03-14T06:48:43.869Z",
+      "updatedAt": "2026-03-14T18:48:43.869Z"
+    },
+    {
+      "id": "G5FX7iPgtN8dOPtDKdV70",
+      "reporterId": "K9nzuV9Il37qOm-zz33ZA",
+      "category": "Natural Disaster",
+      "subcategory": "Flooding",
+      "title": "Flooding in St. Catherine",
+      "description": "Flood water building under Mandela Highway after intense rainfall. Traffic moving slowly.",
+      "severity": "critical",
+      "status": "responding",
+      "credibility": "pending",
+      "confirmationCount": 2,
+      "disputeCount": 0,
+      "anonymous": false,
+      "photos": [],
+      "parish": "St. Catherine",
+      "latitude": 17.9838,
+      "longitude": -76.913,
+      "address": "St. Catherine, Jamaica",
+      "moderation": {
+        "sensitive": false,
+        "flagged": false
+      },
+      "authorityActions": [
+        {
+          "id": "kwVrAMbNUkU9OTwLKkdGi",
+          "authorityId": "1dxJtdyShvQ1bVfe4eZ3-",
+          "authorityName": "D. Williams",
+          "action": "respond",
+          "notes": "Rescue team deployed and traffic rerouted.",
+          "createdAt": "2026-03-14T21:48:43.869Z"
+        }
+      ],
+      "createdAt": "2026-03-14T00:48:43.869Z",
+      "updatedAt": "2026-03-14T15:48:43.869Z"
+    },
+    {
+      "id": "d1mtWawNjy7dg_Tg9Kext",
+      "reporterId": "K9nzuV9Il37qOm-zz33ZA",
+      "category": "Community Alert",
+      "subcategory": "School Lockdown",
+      "title": "School Lockdown in St. James",
+      "description": "School temporarily locked down while police investigate a nearby disturbance.",
+      "severity": "high",
+      "status": "active",
+      "credibility": "pending",
+      "confirmationCount": 2,
+      "disputeCount": 0,
+      "anonymous": true,
+      "photos": [],
+      "parish": "St. James",
+      "latitude": 18.4771,
+      "longitude": -77.8939,
+      "address": "St. James, Jamaica",
+      "moderation": {
+        "sensitive": false,
+        "flagged": false
+      },
+      "authorityActions": [],
+      "createdAt": "2026-03-13T18:48:43.869Z",
+      "updatedAt": "2026-03-14T12:48:43.869Z"
+    },
+    {
+      "id": "pfSyltT8mVs00JgmRcxox",
+      "reporterId": "K9nzuV9Il37qOm-zz33ZA",
+      "category": "Accident",
+      "subcategory": "Vehicle Collision",
+      "title": "Vehicle Collision in St. Ann",
+      "description": "Two-vehicle collision causing lane blockage along North Coast Highway.",
+      "severity": "medium",
+      "status": "active",
+      "credibility": "pending",
+      "confirmationCount": 2,
+      "disputeCount": 0,
+      "anonymous": false,
+      "photos": [],
+      "parish": "St. Ann",
+      "latitude": 18.4081,
+      "longitude": -77.0994,
+      "address": "St. Ann, Jamaica",
+      "moderation": {
+        "sensitive": false,
+        "flagged": false
+      },
+      "authorityActions": [],
+      "createdAt": "2026-03-13T12:48:43.869Z",
+      "updatedAt": "2026-03-14T09:48:43.869Z"
+    },
+    {
+      "id": "h9g6UEhdY43jAxhcRMz9Y",
+      "reporterId": "K9nzuV9Il37qOm-zz33ZA",
+      "category": "Infrastructure",
+      "subcategory": "Road Damage",
+      "title": "Road Damage in Manchester",
+      "description": "Large road break reported outside Mandeville market entrance.",
+      "severity": "low",
+      "status": "active",
+      "credibility": "pending",
+      "confirmationCount": 2,
+      "disputeCount": 1,
+      "anonymous": false,
+      "photos": [],
+      "parish": "Manchester",
+      "latitude": 18.0414,
+      "longitude": -77.5071,
+      "address": "Manchester, Jamaica",
+      "moderation": {
+        "sensitive": false,
+        "flagged": true
+      },
+      "authorityActions": [],
+      "createdAt": "2026-03-13T06:48:43.869Z",
+      "updatedAt": "2026-03-14T06:48:43.869Z"
+    }
+  ],
+  "confirmations": [],
+  "strikes": [],
+  "deviceTokens": [],
+  "moderationAppeals": [],
+  "pendingPhotoScans": [],
+  "notifications": []
+}
