@@ -47,8 +47,11 @@ import {
   withinJamaica
 } from '../lib/utils.js';
 import { createSupabaseBrowserClient } from '../lib/supabase/client.js';
+import { MapboxIncidentMap } from './mapbox-incident-map.jsx';
+import { MapboxLocationPicker } from './mapbox-location-picker.jsx';
 
 const INCIDENT_CACHE_KEY = 'jeip_cached_incidents';
+const MAPBOX_ENABLED = Boolean(process.env.NEXT_PUBLIC_MAPBOX_TOKEN);
 const REPORT_QUEUE_KEY = 'jeip_report_queue';
 
 export function PlatformShell({ page, incidentId = '' }) {
@@ -1096,15 +1099,22 @@ function FeedScreen({
               </div>
             </div>
 
-            <IncidentMap
-              incidents={incidents}
-              onSelect={(incident) => {
-                setPreviewIncident(incident);
-                onOpenIncident(incident.id);
-              }}
-              userLocation={userLocation}
-              highlightedIncidentId={selectedIncidentId}
-            />
+            {MAPBOX_ENABLED ? (
+              <MapboxIncidentMap
+                className="h-[30rem]"
+                highlightedIncidentId={selectedIncidentId}
+                incidents={incidents}
+                onIncidentSelect={(incident) => setPreviewIncident(incident)}
+                userLocation={userLocation}
+              />
+            ) : (
+              <IncidentMap
+                incidents={incidents}
+                onSelect={(incident) => setPreviewIncident(incident)}
+                userLocation={userLocation}
+                highlightedIncidentId={selectedIncidentId}
+              />
+            )}
 
             <div className="mt-4 rounded-[24px] border border-white/10 bg-[var(--surface-2)] p-4">
               {previewIncident ? (
@@ -1566,12 +1576,22 @@ function IncidentDetailContent({
 
           <div className={sectionClassName}>
             <div className="section-label">Incident map</div>
-            <IncidentMap
-              highlightedIncidentId={incident.id}
-              incidents={[incident]}
-              onSelect={() => {}}
-              userLocation={null}
-            />
+            {MAPBOX_ENABLED ? (
+              <MapboxIncidentMap
+                className="h-[22rem]"
+                highlightedIncidentId={incident.id}
+                incidents={[incident]}
+                singleIncident
+                userLocation={null}
+              />
+            ) : (
+              <IncidentMap
+                highlightedIncidentId={incident.id}
+                incidents={[incident]}
+                onSelect={() => {}}
+                userLocation={null}
+              />
+            )}
           </div>
 
           {incident.photos?.length ? (
@@ -2162,6 +2182,8 @@ function ReportWizard({ canPost, onSubmit, user }) {
     anonymous: false,
     photos: []
   });
+  const manualParishFallback =
+    PARISHES.find((parish) => form.address.includes(parish)) || user?.parish || 'Kingston';
 
   async function handleFiles(fileList) {
     const files = Array.from(fileList).slice(0, 3);
@@ -2267,16 +2289,69 @@ function ReportWizard({ canPost, onSubmit, user }) {
 
       {step === 2 ? (
         <div className="space-y-6">
-          <div className="flex flex-wrap gap-3">
-            <button type="button" className="primary-button" onClick={requestLocation}>Use current GPS location</button>
-            <button type="button" className="ghost-button" onClick={() => setForm((current) => ({ ...current, latitude: 17.9712, longitude: -76.7928, address: 'Kingston, Jamaica' }))}>Reset to Kingston</button>
+          <div className="surface-muted space-y-4">
+            <div>
+              <div className="section-label">Search, pin, and confirm</div>
+              <p className="mt-2 text-sm leading-7 text-slate-300">
+                Search for an address, use your current location, or drag the pin until the incident location is exact.
+              </p>
+            </div>
+
+            {MAPBOX_ENABLED ? (
+              <MapboxLocationPicker
+                onChange={(nextLocation) =>
+                  setForm((current) => ({
+                    ...current,
+                    latitude: nextLocation.latitude,
+                    longitude: nextLocation.longitude,
+                    address: nextLocation.address
+                  }))
+                }
+                value={form}
+              />
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-3">
+                  <button type="button" className="primary-button" onClick={requestLocation}>
+                    Use current GPS location
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() =>
+                      setForm((current) => ({
+                        ...current,
+                        latitude: 17.9712,
+                        longitude: -76.7928,
+                        address: 'Kingston, Jamaica'
+                      }))
+                    }
+                  >
+                    Reset to Kingston
+                  </button>
+                </div>
+                <IncidentMap
+                  editable
+                  incidents={[]}
+                  onPick={(coords) =>
+                    setForm((current) => ({
+                      ...current,
+                      latitude: coords.latitude,
+                      longitude: coords.longitude
+                    }))
+                  }
+                  value={form}
+                />
+              </>
+            )}
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <label className="space-y-2">
               <span className="section-label">Manual parish fallback</span>
               <select
                 className="field"
-                value={form.address.replace(', Jamaica', '')}
+                value={manualParishFallback}
                 onChange={(event) => {
                   const center = PARISH_CENTERS[event.target.value];
                   setForm((current) => ({
@@ -2307,7 +2382,6 @@ function ReportWizard({ canPost, onSubmit, user }) {
               <input className="field" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
             </label>
           </div>
-          <IncidentMap incidents={[]} editable value={form} onPick={(coords) => setForm((current) => ({ ...current, latitude: coords.latitude, longitude: coords.longitude }))} />
           <div className={`rounded-2xl border px-4 py-3 text-sm ${withinJamaica(form.latitude, form.longitude) ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' : 'border-rose-500/30 bg-rose-500/10 text-rose-100'}`}>
             {withinJamaica(form.latitude, form.longitude) ? 'Selected coordinates are within Jamaica.' : 'Selected coordinates are outside Jamaica. Move the pin or enter a valid location.'}
           </div>
@@ -2368,7 +2442,10 @@ function ReportWizard({ canPost, onSubmit, user }) {
           <div className="grid gap-4 md:grid-cols-2">
             <SummaryCard label="Category" value={`${form.category} · ${form.subcategory}`} />
             <SummaryCard label="Severity" value={SEVERITY_META[form.severity].label} />
-            <SummaryCard label="Location" value={`${form.latitude}, ${form.longitude}`} />
+            <SummaryCard
+              label="Location"
+              value={`${form.address} • ${form.latitude.toFixed(4)}, ${form.longitude.toFixed(4)}`}
+            />
             <SummaryCard label="Photos" value={`${form.photos.length}`} />
           </div>
           <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 text-sm leading-7 text-slate-300">{form.description}</div>

@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import 'mapbox-gl/dist/mapbox-gl.css';
 
 import { Providers } from '../components/providers.jsx';
 
