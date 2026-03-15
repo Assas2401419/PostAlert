@@ -33,6 +33,7 @@ import {
   DEFAULT_NOTIFICATION_PREFS,
   FALLBACK_CATEGORY_ICON,
   MAP_BOUNDS,
+  PARISH_CENTERS,
   PARISHES,
   SEVERITY_META
 } from '../lib/constants.js';
@@ -72,6 +73,10 @@ export function PlatformShell({ page }) {
   const [detailIncident, setDetailIncident] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [dashboard, setDashboard] = useState(null);
+  const [authorityFilters, setAuthorityFilters] = useState({
+    parish: '',
+    status: ''
+  });
   const [pendingAuthorities, setPendingAuthorities] = useState([]);
   const [profileBundle, setProfileBundle] = useState(null);
   const [activityBundle, setActivityBundle] = useState(null);
@@ -80,19 +85,31 @@ export function PlatformShell({ page }) {
     heatmap: [],
     top: [],
     total: 0,
+    summary: {
+      '24h': 0,
+      '7d': 0,
+      '30d': 0
+    },
     period: '24h',
-    parish: ''
+    parish: '',
+    dateFrom: '',
+    dateTo: ''
   });
   const [queue, setQueue] = useState(readFromStorage(REPORT_QUEUE_KEY, []));
   const [online, setOnline] = useState(typeof window !== 'undefined' ? window.navigator.onLine : true);
   const [flash, setFlash] = useState(null);
+  const [authConfirmation, setAuthConfirmation] = useState(null);
+  const [resetPreview, setResetPreview] = useState(null);
   const [authorityAlert, setAuthorityAlert] = useState(null);
 
   const selectedIncidentId = searchParams.get('incident');
   const sessionUser = session?.user || null;
   const currentUser = profileBundle?.user || sessionUser;
   const canPost = Boolean(currentUser?.canPost);
-  const showAuthorityRoute = currentUser?.role === 'authority' || currentUser?.role === 'admin';
+  const showAuthorityRoute =
+    currentUser?.role === 'authority' ||
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'authority_pending';
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -171,13 +188,28 @@ export function PlatformShell({ page }) {
     if (page === 'authority' && showAuthorityRoute) {
       loadAuthorityData();
     }
-  }, [page, showAuthorityRoute, currentUser?.parish]);
+  }, [page, showAuthorityRoute, currentUser?.parish, authorityFilters.parish, authorityFilters.status]);
 
   useEffect(() => {
     if (page === 'trends') {
-      loadTrendData(trendsBundle.period, trendsBundle.parish);
+      loadTrendData(
+        trendsBundle.period,
+        trendsBundle.parish,
+        trendsBundle.dateFrom,
+        trendsBundle.dateTo
+      );
     }
-  }, [page, trendsBundle.period, trendsBundle.parish]);
+  }, [page, trendsBundle.period, trendsBundle.parish, trendsBundle.dateFrom, trendsBundle.dateTo]);
+
+  useEffect(() => {
+    if (!currentUser?.parish) {
+      return;
+    }
+    setAuthorityFilters((current) => ({
+      ...current,
+      parish: current.parish || currentUser.parish
+    }));
+  }, [currentUser?.parish]);
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -205,7 +237,12 @@ export function PlatformShell({ page }) {
               loadProfileData();
             }
             if (page === 'trends') {
-              loadTrendData(trendsBundle.period, trendsBundle.parish);
+              loadTrendData(
+                trendsBundle.period,
+                trendsBundle.parish,
+                trendsBundle.dateFrom,
+                trendsBundle.dateTo
+              );
             }
           });
         }
@@ -220,7 +257,7 @@ export function PlatformShell({ page }) {
         realtimeRef.current = null;
       }
     };
-  }, [page, selectedIncidentId, status, trendsBundle.period, trendsBundle.parish]);
+  }, [page, selectedIncidentId, status, trendsBundle.period, trendsBundle.parish, trendsBundle.dateFrom, trendsBundle.dateTo]);
 
   useEffect(() => {
     const target = listEndRef.current;
@@ -310,9 +347,13 @@ export function PlatformShell({ page }) {
 
   async function loadAuthorityData() {
     try {
-      const response = await apiRequest(
-        `/api/authority/dashboard?parish=${encodeURIComponent(currentUser?.parish || '')}`
-      );
+      const searchParams = new URLSearchParams({
+        parish: authorityFilters.parish || currentUser?.parish || ''
+      });
+      if (authorityFilters.status) {
+        searchParams.set('status', authorityFilters.status);
+      }
+      const response = await apiRequest(`/api/authority/dashboard?${searchParams.toString()}`);
       setDashboard(response);
       const latestHighSeverity = response.incidents.find(
         (incident) =>
@@ -332,24 +373,38 @@ export function PlatformShell({ page }) {
     }
   }
 
-  async function loadTrendData(period, parish) {
+  async function loadTrendData(period, parish, dateFrom = '', dateTo = '') {
     try {
-      const suffix = new URLSearchParams({
-        period,
-        ...(parish ? { parish } : {})
-      }).toString();
-      const [counts, heatmap, top] = await Promise.all([
-        apiRequest(`/api/trends/counts?${suffix}`),
-        apiRequest(`/api/trends/heatmap?${suffix}`),
-        apiRequest(`/api/trends/top-categories?${suffix}`)
+      const createSuffix = (nextPeriod) =>
+        new URLSearchParams({
+          period: nextPeriod,
+          ...(parish ? { parish } : {}),
+          ...(dateFrom ? { dateFrom } : {}),
+          ...(dateTo ? { dateTo } : {})
+        }).toString();
+
+      const [counts, heatmap, top, counts24h, counts7d, counts30d] = await Promise.all([
+        apiRequest(`/api/trends/counts?${createSuffix(period)}`),
+        apiRequest(`/api/trends/heatmap?${createSuffix(period)}`),
+        apiRequest(`/api/trends/top-categories?${createSuffix(period)}`),
+        apiRequest(`/api/trends/counts?${createSuffix('24h')}`),
+        apiRequest(`/api/trends/counts?${createSuffix('7d')}`),
+        apiRequest(`/api/trends/counts?${createSuffix('30d')}`)
       ]);
       setTrendsBundle({
         counts: counts.counts,
         total: counts.total,
         heatmap: heatmap.items,
         top: top.items,
+        summary: {
+          '24h': counts24h.total,
+          '7d': counts7d.total,
+          '30d': counts30d.total
+        },
         period,
-        parish
+        parish,
+        dateFrom,
+        dateTo
       });
     } catch (error) {
       setFlash({ tone: 'error', message: error.message });
@@ -358,6 +413,8 @@ export function PlatformShell({ page }) {
 
   async function handleAuth(mode, payload) {
     try {
+      setAuthConfirmation(null);
+      setResetPreview(null);
       if (mode === 'login') {
         const result = await signIn('credentials', {
           email: payload.email,
@@ -385,14 +442,83 @@ export function PlatformShell({ page }) {
         }
       }
       await update();
-      setFlash({
-        tone: 'success',
-        message: mode === 'login' ? 'Authentication successful.' : 'Account created successfully.'
+      if (mode === 'login') {
+        setFlash({
+          tone: 'success',
+          message: 'Authentication successful.'
+        });
+        router.push('/');
+        return;
+      }
+
+      setAuthConfirmation({
+        title:
+          mode === 'authority'
+            ? 'Authority account created successfully'
+            : 'Account created successfully',
+        message:
+          mode === 'authority'
+            ? 'Your authority account is now active in read-only mode until an administrator approves verification.'
+            : 'Your citizen account is ready. You are signed in and can continue to the live incident feed.',
+        email: payload.email
       });
-      router.push('/');
     } catch (error) {
       setFlash({ tone: 'error', message: error.message });
     }
+  }
+
+  async function requestPasswordReset(email) {
+    try {
+      const response = await apiRequest('/api/auth/reset-password', {
+        method: 'POST',
+        body: { email }
+      });
+      setResetPreview({
+        email,
+        token: response.resetToken || '',
+        expiresAt: response.expiresAt || ''
+      });
+      setFlash({
+        tone: 'success',
+        message: response.resetToken
+          ? 'Reset instructions generated. In local development, use the token shown below.'
+          : 'If that email is registered, reset instructions have been issued.'
+      });
+      return response;
+    } catch (error) {
+      setFlash({ tone: 'error', message: error.message });
+      return null;
+    }
+  }
+
+  async function completePasswordReset(token, password) {
+    try {
+      await apiRequest('/api/auth/reset-password', {
+        method: 'PUT',
+        body: { token, password }
+      });
+      setResetPreview(null);
+      setFlash({
+        tone: 'success',
+        message: 'Password updated successfully. Sign in with your new password.'
+      });
+      return true;
+    } catch (error) {
+      setFlash({ tone: 'error', message: error.message });
+      return false;
+    }
+  }
+
+  function continueFromAuthConfirmation() {
+    if (!authConfirmation) {
+      return;
+    }
+    setFlash({
+      tone: 'success',
+      message: authConfirmation.title
+    });
+    setAuthConfirmation(null);
+    router.push('/');
   }
 
   async function submitReport(payload) {
@@ -550,7 +676,45 @@ export function PlatformShell({ page }) {
         method: 'POST',
         body: payload
       });
+      await loadProfileData();
       setFlash({ tone: 'success', message: 'Strike appeal submitted.' });
+    } catch (error) {
+      setFlash({ tone: 'error', message: error.message });
+    }
+  }
+
+  async function createIncidentComment(message) {
+    if (status !== 'authenticated' || !selectedIncidentId) {
+      router.push('/auth');
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/incidents/${selectedIncidentId}/comments`, {
+        method: 'POST',
+        body: { message }
+      });
+      const detail = await apiRequest(`/api/incidents/${selectedIncidentId}`);
+      setDetailIncident(detail.incident);
+      broadcast('refresh-incidents');
+    } catch (error) {
+      setFlash({ tone: 'error', message: error.message });
+    }
+  }
+
+  async function deleteIncidentComment(commentId) {
+    if (status !== 'authenticated' || !selectedIncidentId) {
+      router.push('/auth');
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/incidents/${selectedIncidentId}/comments`, {
+        method: 'DELETE',
+        body: { commentId }
+      });
+      const detail = await apiRequest(`/api/incidents/${selectedIncidentId}`);
+      setDetailIncident(detail.incident);
     } catch (error) {
       setFlash({ tone: 'error', message: error.message });
     }
@@ -575,7 +739,7 @@ export function PlatformShell({ page }) {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-4">
             <div className="brand-mark">
-              <RadioTower className="h-5 w-5" />
+              <RadioTower aria-hidden="true" className="h-5 w-5" />
             </div>
             <div>
               <p className="font-display text-xl tracking-[0.2em] text-white">JEIP</p>
@@ -636,7 +800,9 @@ export function PlatformShell({ page }) {
             filters={filters}
             feedView={feedView}
             listEndRef={listEndRef}
+            pageNumber={pageNumber}
             onFiltersChange={setFilters}
+            onPageChange={(nextPage) => loadIncidents(nextPage, false)}
             onViewChange={setFeedView}
             onOpenIncident={(incidentId) => router.push(`/?incident=${incidentId}`)}
             selectedIncidentId={selectedIncidentId}
@@ -644,7 +810,16 @@ export function PlatformShell({ page }) {
           />
         ) : null}
 
-        {page === 'auth' ? <AuthScreen onSubmit={handleAuth} /> : null}
+        {page === 'auth' ? (
+          <AuthScreen
+            confirmation={authConfirmation}
+            onContinue={continueFromAuthConfirmation}
+            onRequestReset={requestPasswordReset}
+            onResetPassword={completePasswordReset}
+            onSubmit={handleAuth}
+            resetPreview={resetPreview}
+          />
+        ) : null}
 
         {page === 'report' ? (
           currentUser ? (
@@ -658,8 +833,11 @@ export function PlatformShell({ page }) {
           showAuthorityRoute ? (
             <AuthorityScreen
               dashboard={dashboard}
+              filters={authorityFilters}
               pendingAuthorities={pendingAuthorities}
+              user={currentUser}
               onAction={handleAuthorityAction}
+              onFiltersChange={setAuthorityFilters}
               onApprove={approveAuthority}
             />
           ) : (
@@ -668,15 +846,21 @@ export function PlatformShell({ page }) {
         ) : null}
 
         {page === 'trends' ? (
-          <TrendsScreen
-            trendsBundle={trendsBundle}
-            onChangePeriod={(period) =>
-              setTrendsBundle((current) => ({ ...current, period }))
-            }
-            onChangeParish={(parish) =>
-              setTrendsBundle((current) => ({ ...current, parish }))
-            }
-          />
+            <TrendsScreen
+              trendsBundle={trendsBundle}
+              onChangePeriod={(period) =>
+                setTrendsBundle((current) => ({ ...current, period }))
+              }
+              onChangeParish={(parish) =>
+                setTrendsBundle((current) => ({ ...current, parish }))
+              }
+              onChangeDateFrom={(dateFrom) =>
+                setTrendsBundle((current) => ({ ...current, dateFrom }))
+              }
+              onChangeDateTo={(dateTo) =>
+                setTrendsBundle((current) => ({ ...current, dateTo }))
+              }
+            />
         ) : null}
 
         {page === 'profile' ? (
@@ -700,6 +884,8 @@ export function PlatformShell({ page }) {
         user={currentUser}
         onClose={() => router.push('/')}
         onConfirm={() => handleVote('confirm')}
+        onCommentCreate={createIncidentComment}
+        onCommentDelete={deleteIncidentComment}
         onDispute={() => handleVote('dispute')}
         onAuthorityAction={handleAuthorityAction}
       />
@@ -735,7 +921,10 @@ function FlashBanner({ flash }) {
   };
 
   return (
-    <div className={`mx-auto mt-4 max-w-7xl rounded-3xl border px-4 py-3 text-sm ${tones[flash.tone]}`}>
+    <div
+      aria-live="polite"
+      className={`mx-auto mt-4 max-w-7xl rounded-3xl border px-4 py-3 text-sm ${tones[flash.tone]}`}
+    >
       {flash.message}
     </div>
   );
@@ -743,7 +932,10 @@ function FlashBanner({ flash }) {
 
 function OfflineBanner({ queueCount }) {
   return (
-    <div className="mx-auto mt-4 flex max-w-7xl items-center justify-between rounded-3xl border border-amber-500/30 bg-amber-500/12 px-4 py-3 text-sm text-amber-100">
+    <div
+      aria-live="polite"
+      className="mx-auto mt-4 flex max-w-7xl items-center justify-between rounded-3xl border border-amber-500/30 bg-amber-500/12 px-4 py-3 text-sm text-amber-100"
+    >
       <span>Connection lost. Cached incidents remain available.</span>
       <span>{queueCount} queued report{queueCount === 1 ? '' : 's'}</span>
     </div>
@@ -754,7 +946,7 @@ function AlertRibbon({ incident, onDismiss }) {
   return (
     <div className="mx-auto mt-4 flex max-w-7xl items-center justify-between gap-4 rounded-3xl border border-rose-500/30 bg-rose-500/15 px-4 py-3 text-sm text-rose-50">
       <div className="flex items-center gap-3">
-        <Siren className="h-5 w-5" />
+        <Siren aria-hidden="true" className="h-5 w-5" />
         <span>
           High-severity alert in {incident.parish}: {incident.title}
         </span>
@@ -791,7 +983,7 @@ function StatCard({ label, value, icon: Icon }) {
   return (
     <div className="rounded-[28px] border border-white/10 bg-white/5 p-4">
       <div className="mb-6 inline-flex rounded-2xl border border-white/10 bg-white/10 p-3 text-amber-300">
-        <Icon className="h-5 w-5" />
+        <Icon aria-hidden="true" className="h-5 w-5" />
       </div>
       <div className="text-xs uppercase tracking-[0.2em] text-slate-400">{label}</div>
       <div className="mt-2 font-display text-3xl text-white">{value}</div>
@@ -805,7 +997,9 @@ function FeedScreen({
   hasMore,
   filters,
   feedView,
+  pageNumber,
   onFiltersChange,
+  onPageChange,
   onViewChange,
   onOpenIncident,
   selectedIncidentId,
@@ -829,11 +1023,11 @@ function FeedScreen({
             <div className="text-xs uppercase tracking-[0.2em] text-slate-400">View mode</div>
             <div className="grid grid-cols-2 gap-2">
               <button className={`toggle-button ${feedView === 'map' ? 'toggle-button-active' : ''}`} onClick={() => onViewChange('map')}>
-                <LayoutGrid className="h-4 w-4" />
+                <LayoutGrid aria-hidden="true" className="h-4 w-4" />
                 Map
               </button>
               <button className={`toggle-button ${feedView === 'list' ? 'toggle-button-active' : ''}`} onClick={() => onViewChange('list')}>
-                <LayoutList className="h-4 w-4" />
+                <LayoutList aria-hidden="true" className="h-4 w-4" />
                 List
               </button>
             </div>
@@ -911,8 +1105,34 @@ function FeedScreen({
             ))}
           </div>
 
-          <div ref={listEndRef} className="mt-6 rounded-2xl border border-dashed border-white/10 px-4 py-3 text-center text-sm text-slate-400">
-            {hasMore ? 'Scroll for more incidents' : 'No more incidents'}
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+            <div
+              ref={listEndRef}
+              className="rounded-2xl border border-dashed border-white/10 px-4 py-3 text-center text-sm text-slate-400"
+            >
+              {hasMore ? 'Scroll for more incidents' : 'No more incidents'}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="ghost-button"
+                disabled={pageNumber <= 1}
+                onClick={() => onPageChange(Math.max(pageNumber - 1, 1))}
+                type="button"
+              >
+                Previous
+              </button>
+              <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-slate-300">
+                Page {pageNumber}
+              </div>
+              <button
+                className="ghost-button"
+                disabled={!hasMore}
+                onClick={() => onPageChange(pageNumber + 1)}
+                type="button"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -925,7 +1145,7 @@ function FilterPanel({ filters, onChange }) {
     <div className="space-y-6">
       <div className="space-y-3">
         <div className="section-label">
-          <Search className="h-4 w-4" />
+          <Search aria-hidden="true" className="h-4 w-4" />
           Category
         </div>
         <div className="flex flex-wrap gap-2">
@@ -950,7 +1170,7 @@ function FilterPanel({ filters, onChange }) {
 
       <div className="space-y-3">
         <div className="section-label">
-          <TriangleAlert className="h-4 w-4" />
+          <TriangleAlert aria-hidden="true" className="h-4 w-4" />
           Severity
         </div>
         <div className="flex flex-wrap gap-2">
@@ -976,7 +1196,7 @@ function FilterPanel({ filters, onChange }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-2">
           <span className="section-label">
-            <Clock3 className="h-4 w-4" />
+            <Clock3 aria-hidden="true" className="h-4 w-4" />
             Time range
           </span>
           <select
@@ -991,7 +1211,7 @@ function FilterPanel({ filters, onChange }) {
         </label>
         <label className="space-y-2">
           <span className="section-label">
-            <MapPinned className="h-4 w-4" />
+            <MapPinned aria-hidden="true" className="h-4 w-4" />
             Parish
           </span>
           <select
@@ -1096,6 +1316,13 @@ function Marker({ incident, onClick, highlighted, variant }) {
 
   return (
     <button
+      aria-label={
+        variant === 'user'
+          ? 'Your saved location'
+          : variant === 'draft'
+            ? 'Draft incident location'
+            : `${incident.title || incident.category} marker`
+      }
       className={`map-marker ${className} ${highlighted ? 'scale-125 ring-2 ring-white/60' : ''}`}
       style={{ left: `${left}%`, top: `${top}%` }}
       onClick={onClick}
@@ -1113,29 +1340,45 @@ function IncidentCard({ incident, selected, onClick, userLocation }) {
   return (
     <button className={`incident-row ${selected ? 'incident-row-active' : ''}`} onClick={onClick} type="button">
       <div className={`icon-shell ${CATEGORY_META[incident.category]?.surface || 'bg-white/10'} ${CATEGORY_META[incident.category]?.accent || 'text-white'}`}>
-        <Icon className="h-5 w-5" />
+        <Icon aria-hidden="true" className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1 text-left">
         <div className="flex flex-wrap items-center gap-2">
           <div className="truncate text-base font-semibold text-white">{incident.title}</div>
           <SeverityBadge severity={incident.severity} />
+          <CredibilityBadge credibility={incident.credibility} />
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-400">
+          <span>{incident.parish}</span>
           <span>{formatAgo(incident.createdAt)}</span>
           <span>{incident.confirmationCount} confirmations</span>
           {distance ? <span>{distance} km away</span> : null}
         </div>
       </div>
-      <ChevronRight className="h-5 w-5 text-slate-500" />
+      <ChevronRight aria-hidden="true" className="h-5 w-5 text-slate-500" />
     </button>
   );
 }
 
-function IncidentDrawer({ incident, loading, user, onClose, onConfirm, onDispute, onAuthorityAction }) {
+function IncidentDrawer({
+  incident,
+  loading,
+  user,
+  onClose,
+  onCommentCreate,
+  onCommentDelete,
+  onConfirm,
+  onDispute,
+  onAuthorityAction
+}) {
   const [notes, setNotes] = useState('');
+  const [comment, setComment] = useState('');
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
 
   useEffect(() => {
     setNotes('');
+    setComment('');
+    setSelectedPhoto(null);
   }, [incident?.id]);
 
   if (!incident && !loading) {
@@ -1153,7 +1396,21 @@ function IncidentDrawer({ incident, loading, user, onClose, onConfirm, onDispute
           </div>
           <button className="ghost-button" onClick={onClose}>Close</button>
         </div>
-        {loading ? (
+        {selectedPhoto ? (
+          <div className="p-6">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="section-label">Photo zoom</div>
+              <button className="ghost-button" onClick={() => setSelectedPhoto(null)} type="button">
+                Close photo
+              </button>
+            </div>
+            <img
+              alt={selectedPhoto.name}
+              className="max-h-[70vh] w-full rounded-[28px] object-contain"
+              src={selectedPhoto.url}
+            />
+          </div>
+        ) : loading ? (
           <div className="p-6 text-sm text-slate-400">Loading incident details…</div>
         ) : incident ? (
           <div className="space-y-6 p-6">
@@ -1173,7 +1430,18 @@ function IncidentDrawer({ incident, loading, user, onClose, onConfirm, onDispute
             {incident.photos?.length ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 {incident.photos.map((photo) => (
-                  <img key={photo.id} src={photo.url} alt={photo.name} className="h-40 w-full rounded-[24px] object-cover" />
+                  <button
+                    key={photo.id}
+                    className="overflow-hidden rounded-[24px] border border-white/10"
+                    onClick={() => setSelectedPhoto(photo)}
+                    type="button"
+                  >
+                    <img
+                      alt={photo.name}
+                      className="h-40 w-full object-cover transition-transform duration-200 hover:scale-[1.02]"
+                      src={photo.url}
+                    />
+                  </button>
                 ))}
               </div>
             ) : null}
@@ -1203,6 +1471,54 @@ function IncidentDrawer({ incident, loading, user, onClose, onConfirm, onDispute
               </div>
             </div>
 
+            <div className="surface-muted">
+              <div className="section-label mb-3">Comments</div>
+              <div className="space-y-3">
+                {incident.comments?.length ? incident.comments.map((entry) => (
+                  <div key={entry.id} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-white">{entry.author.name}</div>
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                          {entry.author.parish} · {formatAgo(entry.createdAt)}
+                        </div>
+                      </div>
+                      {entry.canDelete ? (
+                        <button
+                          className="ghost-button"
+                          onClick={() => onCommentDelete(entry.id)}
+                          type="button"
+                        >
+                          Delete
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 text-sm leading-7 text-slate-300">{entry.message}</div>
+                  </div>
+                )) : <div className="text-slate-400">No discussion yet.</div>}
+              </div>
+              {user ? (
+                <div className="mt-4 space-y-3">
+                  <textarea
+                    className="field min-h-24"
+                    placeholder="Add context or clarification for this incident."
+                    value={comment}
+                    onChange={(event) => setComment(event.target.value)}
+                  />
+                  <button
+                    className="primary-button"
+                    onClick={() => {
+                      onCommentCreate(comment);
+                      setComment('');
+                    }}
+                    type="button"
+                  >
+                    Post comment
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
             {user && incident.canAct ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 <button className="primary-button" onClick={onConfirm}>Confirm</button>
@@ -1230,8 +1546,16 @@ function IncidentDrawer({ incident, loading, user, onClose, onConfirm, onDispute
   );
 }
 
-function AuthScreen({ onSubmit }) {
+function AuthScreen({
+  confirmation,
+  onContinue,
+  onRequestReset,
+  onResetPassword,
+  onSubmit,
+  resetPreview
+}) {
   const [mode, setMode] = useState('login');
+  const [resetOpen, setResetOpen] = useState(false);
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -1240,12 +1564,29 @@ function AuthScreen({ onSubmit }) {
     organizationName: '',
     badgeNumber: ''
   });
+  const [resetForm, setResetForm] = useState({
+    email: '',
+    token: '',
+    password: ''
+  });
 
   const formTitle = {
     login: 'Sign in to JEIP',
     register: 'Create a citizen account',
     authority: 'Register as an authority user'
   };
+
+  useEffect(() => {
+    if (!resetPreview) {
+      return;
+    }
+    setResetOpen(true);
+    setResetForm((current) => ({
+      ...current,
+      email: resetPreview.email || current.email,
+      token: resetPreview.token || current.token
+    }));
+  }, [resetPreview]);
 
   return (
     <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
@@ -1257,57 +1598,233 @@ function AuthScreen({ onSubmit }) {
             Citizens can report and validate incidents. Verified authority accounts unlock the operational dashboard and response actions.
           </p>
         </div>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <button className={`toggle-button ${mode === 'login' ? 'toggle-button-active' : ''}`} onClick={() => setMode('login')}>Sign in</button>
-          <button className={`toggle-button ${mode === 'register' ? 'toggle-button-active' : ''}`} onClick={() => setMode('register')}>Citizen</button>
-          <button className={`toggle-button ${mode === 'authority' ? 'toggle-button-active' : ''}`} onClick={() => setMode('authority')}>Authority</button>
+      <div className="mt-8 flex flex-wrap gap-3">
+          <button
+            className={`toggle-button ${mode === 'login' ? 'toggle-button-active' : ''}`}
+            onClick={() => setMode('login')}
+          >
+            Sign in
+          </button>
+          <button
+            className={`toggle-button ${mode === 'register' ? 'toggle-button-active' : ''}`}
+            onClick={() => setMode('register')}
+          >
+            Citizen
+          </button>
+          <button
+            className={`toggle-button ${mode === 'authority' ? 'toggle-button-active' : ''}`}
+            onClick={() => setMode('authority')}
+          >
+            Authority
+          </button>
         </div>
       </div>
 
-      <form className="surface-card space-y-4" onSubmit={(event) => { event.preventDefault(); onSubmit(mode, form); }}>
-        <label className="space-y-2">
-          <span className="section-label">Email</span>
-          <input className="field" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} required />
-        </label>
-        <label className="space-y-2">
-          <span className="section-label">Password</span>
-          <input className="field" type="password" minLength={8} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} required />
-        </label>
-        {mode !== 'login' ? (
-          <>
-            <label className="space-y-2">
-              <span className="section-label">Full name</span>
-              <input className="field" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-            </label>
-            <label className="space-y-2">
-              <span className="section-label">Parish</span>
-              <select className="field" value={form.parish} onChange={(event) => setForm((current) => ({ ...current, parish: event.target.value }))}>
-                {PARISHES.map((parish) => (
-                  <option key={parish} value={parish}>{parish}</option>
-                ))}
-              </select>
-            </label>
-          </>
-        ) : null}
-        {mode === 'authority' ? (
-          <>
-            <label className="space-y-2">
-              <span className="section-label">Organization</span>
-              <input className="field" value={form.organizationName} onChange={(event) => setForm((current) => ({ ...current, organizationName: event.target.value }))} required />
-            </label>
-            <label className="space-y-2">
-              <span className="section-label">Badge or ID number</span>
-              <input className="field" value={form.badgeNumber} onChange={(event) => setForm((current) => ({ ...current, badgeNumber: event.target.value }))} required />
-            </label>
-            <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-              Authority accounts are created in read-only mode until an administrator approves verification.
-            </p>
-          </>
-        ) : null}
-        <button className="primary-button w-full" type="submit">
-          {mode === 'login' ? 'Access platform' : 'Create access'}
-        </button>
-      </form>
+      {confirmation ? (
+        <div className="surface-card space-y-5">
+          <div className="inline-flex rounded-2xl border border-emerald-400/25 bg-emerald-500/15 p-3 text-emerald-200">
+            <CheckCircle2 aria-hidden="true" className="h-6 w-6" />
+          </div>
+          <div className="space-y-3">
+            <div className="section-kicker">Account ready</div>
+            <h3 className="font-display text-3xl text-white">{confirmation.title}</h3>
+            <p className="text-sm leading-7 text-slate-300">{confirmation.message}</p>
+          </div>
+          <div className="rounded-[28px] border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+            Signed in as {confirmation.email}
+          </div>
+          <button className="primary-button w-full" onClick={onContinue} type="button">
+            Continue to platform
+          </button>
+        </div>
+      ) : (
+        <form
+          className="surface-card space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit(mode, form);
+          }}
+        >
+          <label className="space-y-2">
+            <span className="section-label">Email</span>
+            <input
+              className="field"
+              type="email"
+              value={form.email}
+              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+              required
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="section-label">Password</span>
+            <input
+              className="field"
+              type="password"
+              minLength={8}
+              value={form.password}
+              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+              required
+            />
+          </label>
+          {mode !== 'login' ? (
+            <>
+              <label className="space-y-2">
+                <span className="section-label">Full name</span>
+                <input
+                  className="field"
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  required
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="section-label">Parish</span>
+                <select
+                  className="field"
+                  value={form.parish}
+                  onChange={(event) => setForm((current) => ({ ...current, parish: event.target.value }))}
+                >
+                  {PARISHES.map((parish) => (
+                    <option key={parish} value={parish}>
+                      {parish}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : null}
+          {mode === 'authority' ? (
+            <>
+              <label className="space-y-2">
+                <span className="section-label">Organization</span>
+                <input
+                  className="field"
+                  value={form.organizationName}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, organizationName: event.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="section-label">Badge or ID number</span>
+                <input
+                  className="field"
+                  value={form.badgeNumber}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, badgeNumber: event.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+                Authority accounts are created in read-only mode until an administrator approves verification.
+              </p>
+            </>
+          ) : null}
+          <button className="primary-button w-full" type="submit">
+            {mode === 'login' ? 'Access platform' : 'Create access'}
+          </button>
+          {mode === 'login' ? (
+            <div className="space-y-4 rounded-[28px] border border-white/10 bg-white/5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="section-label">Password reset</div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    Request a reset token and complete the password update from this screen.
+                  </p>
+                </div>
+                <button
+                  className="ghost-button"
+                  onClick={() => setResetOpen((current) => !current)}
+                  type="button"
+                >
+                  {resetOpen ? 'Hide reset form' : 'Forgot password'}
+                </button>
+              </div>
+
+              {resetOpen ? (
+                <div className="space-y-4">
+                  <label className="space-y-2">
+                    <span className="section-label">Account email</span>
+                    <input
+                      className="field"
+                      type="email"
+                      value={resetForm.email}
+                      onChange={(event) =>
+                        setResetForm((current) => ({ ...current, email: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <button
+                    className="ghost-button w-full"
+                    disabled={!resetForm.email}
+                    onClick={() => onRequestReset(resetForm.email)}
+                    type="button"
+                  >
+                    Generate reset token
+                  </button>
+
+                  {resetPreview?.token ? (
+                    <div className="rounded-[24px] border border-amber-500/30 bg-amber-500/12 p-4 text-sm text-amber-100">
+                      <div className="font-semibold text-white">Local development reset token</div>
+                      <div className="mt-2 break-all font-mono text-xs text-amber-100">
+                        {resetPreview.token}
+                      </div>
+                      <div className="mt-2 text-xs uppercase tracking-[0.16em] text-amber-200/80">
+                        Expires {formatDateTime(resetPreview.expiresAt)}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <label className="space-y-2">
+                    <span className="section-label">Reset token</span>
+                    <input
+                      className="field"
+                      value={resetForm.token}
+                      onChange={(event) =>
+                        setResetForm((current) => ({ ...current, token: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="section-label">New password</span>
+                    <input
+                      className="field"
+                      type="password"
+                      minLength={8}
+                      value={resetForm.password}
+                      onChange={(event) =>
+                        setResetForm((current) => ({ ...current, password: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <button
+                    className="primary-button w-full"
+                    disabled={!resetForm.token || resetForm.password.length < 8}
+                    onClick={async () => {
+                      const success = await onResetPassword(resetForm.token, resetForm.password);
+                      if (!success) {
+                        return;
+                      }
+                      setResetForm((current) => ({
+                        ...current,
+                        token: '',
+                        password: ''
+                      }));
+                      setMode('login');
+                      setResetOpen(false);
+                    }}
+                    type="button"
+                  >
+                    Update password
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </form>
+      )}
     </section>
   );
 }
@@ -1410,7 +1927,7 @@ function ReportWizard({ canPost, onSubmit, user }) {
               return (
                 <button key={category} type="button" className={`category-tile ${form.category === category ? 'category-tile-active' : ''}`} onClick={() => setForm((current) => ({ ...current, category, subcategory: CATEGORY_SUBCATEGORIES[category][0] }))}>
                   <div className={`icon-shell ${meta.surface} ${meta.accent}`}>
-                    <Icon className="h-5 w-5" />
+                    <Icon aria-hidden="true" className="h-5 w-5" />
                   </div>
                   <div className="text-sm font-semibold text-white">{category}</div>
                 </button>
@@ -1426,16 +1943,7 @@ function ReportWizard({ canPost, onSubmit, user }) {
                 ))}
               </select>
             </label>
-            <label className="flex items-end gap-3 rounded-[24px] border border-white/10 bg-white/5 px-4 py-3">
-              <input type="checkbox" checked={form.anonymous} onChange={(event) => setForm((current) => ({ ...current, anonymous: event.target.checked }))} />
-              <span className="text-sm text-slate-300">Report anonymously in the public detail view</span>
-            </label>
           </div>
-          <label className="space-y-2">
-            <span className="section-label">Description</span>
-            <textarea className="field min-h-36" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value.slice(0, 500) }))} placeholder="Describe what happened, current risk, and anything responders should know." />
-            <div className="text-right text-xs text-slate-400">{form.description.length} / 500 characters</div>
-          </label>
         </div>
       ) : null}
 
@@ -1446,6 +1954,28 @@ function ReportWizard({ canPost, onSubmit, user }) {
             <button type="button" className="ghost-button" onClick={() => setForm((current) => ({ ...current, latitude: 17.9712, longitude: -76.7928, address: 'Kingston, Jamaica' }))}>Reset to Kingston</button>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
+            <label className="space-y-2">
+              <span className="section-label">Manual parish fallback</span>
+              <select
+                className="field"
+                value={form.address.replace(', Jamaica', '')}
+                onChange={(event) => {
+                  const center = PARISH_CENTERS[event.target.value];
+                  setForm((current) => ({
+                    ...current,
+                    latitude: center.lat,
+                    longitude: center.lng,
+                    address: `${event.target.value}, Jamaica`
+                  }));
+                }}
+              >
+                {PARISHES.map((parish) => (
+                  <option key={parish} value={parish}>
+                    {parish}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="space-y-2">
               <span className="section-label">Latitude</span>
               <input className="field" type="number" step="0.00001" value={form.latitude} onChange={(event) => setForm((current) => ({ ...current, latitude: Number(event.target.value) }))} />
@@ -1470,6 +2000,18 @@ function ReportWizard({ canPost, onSubmit, user }) {
         <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
           <div className="space-y-4">
             <label className="space-y-2">
+              <span className="section-label">Description</span>
+              <textarea
+                className="field min-h-36"
+                value={form.description}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, description: event.target.value.slice(0, 500) }))
+                }
+                placeholder="Describe what happened, current risk, and anything responders should know."
+              />
+              <div className="text-right text-xs text-slate-400">{form.description.length} / 500 characters</div>
+            </label>
+            <label className="space-y-2">
               <span className="section-label">Upload up to 3 photos</span>
               <input className="field" type="file" accept="image/jpeg,image/png" multiple onChange={(event) => handleFiles(event.target.files)} />
             </label>
@@ -1489,6 +2031,16 @@ function ReportWizard({ canPost, onSubmit, user }) {
                 </button>
               ))}
             </div>
+            <label className="flex items-end gap-3 rounded-[24px] border border-white/10 bg-white/5 px-4 py-3">
+              <input
+                type="checkbox"
+                checked={form.anonymous}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, anonymous: event.target.checked }))
+                }
+              />
+              <span className="text-sm text-slate-300">Report anonymously in the public detail view</span>
+            </label>
           </div>
         </div>
       ) : null}
@@ -1509,14 +2061,14 @@ function ReportWizard({ canPost, onSubmit, user }) {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" className="ghost-button" onClick={() => setStep((current) => Math.max(current - 1, 1))}>
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft aria-hidden="true" className="h-4 w-4" />
           Back
         </button>
         <div className="flex gap-3">
           {step < 4 ? (
             <button type="button" className="primary-button" onClick={() => setStep((current) => Math.min(current + 1, 4))}>
               Continue
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight aria-hidden="true" className="h-4 w-4" />
             </button>
           ) : (
             <button type="submit" className="primary-button" disabled={submitting}>
@@ -1529,7 +2081,9 @@ function ReportWizard({ canPost, onSubmit, user }) {
   );
 }
 
-function AuthorityScreen({ dashboard, pendingAuthorities, onAction, onApprove }) {
+function AuthorityScreen({ dashboard, filters, pendingAuthorities, user, onAction, onFiltersChange, onApprove }) {
+  const [notesByIncident, setNotesByIncident] = useState({});
+
   if (!dashboard) {
     return <div className="surface-card text-sm text-slate-400">Loading authority dashboard…</div>;
   }
@@ -1539,11 +2093,53 @@ function AuthorityScreen({ dashboard, pendingAuthorities, onAction, onApprove })
       <div className="surface-card">
         <div className="section-kicker">Authority operations</div>
         <h2 className="font-display text-3xl text-white">{dashboard.parish} command view</h2>
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          {dashboard.isAdmin ? (
+            <label className="space-y-2">
+              <span className="section-label">Parish selector</span>
+              <select
+                className="field"
+                value={filters.parish}
+                onChange={(event) =>
+                  onFiltersChange((current) => ({ ...current, parish: event.target.value }))
+                }
+              >
+                {PARISHES.map((parish) => (
+                  <option key={parish} value={parish}>
+                    {parish}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="space-y-2">
+            <span className="section-label">Status filter</span>
+            <select
+              className="field"
+              value={filters.status}
+              onChange={(event) =>
+                onFiltersChange((current) => ({ ...current, status: event.target.value }))
+              }
+            >
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="responding">Responding</option>
+              <option value="authority_verified">Authority verified</option>
+              <option value="resolved">Resolved</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+          </label>
+        </div>
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
           <SummaryCard label="Total active" value={String(dashboard.stats.totalActive)} />
           <SummaryCard label="Highest category" value={Object.entries(dashboard.stats.byCategory).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None'} />
           <SummaryCard label="Highest severity" value={Object.entries(dashboard.stats.bySeverity).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None'} />
         </div>
+        {dashboard.readOnly || user?.role === 'authority_pending' ? (
+          <div className="mt-6 rounded-[28px] border border-amber-500/30 bg-amber-500/12 p-4 text-sm text-amber-100">
+            Your authority account is still pending approval. You can review incidents, but official actions remain disabled until an administrator approves verification.
+          </div>
+        ) : null}
       </div>
       <div className="surface-card">
         <div className="section-label mb-4">Jurisdiction incidents</div>
@@ -1560,12 +2156,30 @@ function AuthorityScreen({ dashboard, pendingAuthorities, onAction, onApprove })
                   <div className="text-lg font-semibold text-white">{incident.title}</div>
                   <div className="text-sm text-slate-400">{formatAgo(incident.createdAt)} · {incident.confirmationCount} confirmations</div>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="w-full space-y-3 lg:w-auto">
+                  <textarea
+                    className="field min-h-24 lg:min-w-80"
+                    placeholder="Add public notes for this action."
+                    value={notesByIncident[incident.id] || ''}
+                    onChange={(event) =>
+                      setNotesByIncident((current) => ({
+                        ...current,
+                        [incident.id]: event.target.value
+                      }))
+                    }
+                  />
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {['verify', 'respond', 'resolve', 'dismiss'].map((action) => (
-                    <button key={action} className="ghost-button" onClick={() => onAction(incident.id, action, '')}>
+                    <button
+                      key={action}
+                      className="ghost-button"
+                      disabled={dashboard.readOnly}
+                      onClick={() => onAction(incident.id, action, notesByIncident[incident.id] || '')}
+                    >
                       {action}
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1594,7 +2208,13 @@ function AuthorityScreen({ dashboard, pendingAuthorities, onAction, onApprove })
   );
 }
 
-function TrendsScreen({ trendsBundle, onChangePeriod, onChangeParish }) {
+function TrendsScreen({
+  trendsBundle,
+  onChangeDateFrom,
+  onChangeDateTo,
+  onChangeParish,
+  onChangePeriod
+}) {
   const categories = Object.entries(trendsBundle.counts);
   const highestCount = Math.max(...categories.map(([, count]) => count), 1);
 
@@ -1606,7 +2226,7 @@ function TrendsScreen({ trendsBundle, onChangePeriod, onChangeParish }) {
             <div className="section-kicker">Historical trends</div>
             <h2 className="font-display text-3xl text-white">Safety patterns and hot spots</h2>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <select className="field" value={trendsBundle.period} onChange={(event) => onChangePeriod(event.target.value)}>
               <option value="24h">24 hours</option>
               <option value="7d">7 days</option>
@@ -1618,8 +2238,26 @@ function TrendsScreen({ trendsBundle, onChangePeriod, onChangeParish }) {
                 <option key={parish} value={parish}>{parish}</option>
               ))}
             </select>
+            <input
+              className="field"
+              type="date"
+              value={trendsBundle.dateFrom}
+              onChange={(event) => onChangeDateFrom(event.target.value)}
+            />
+            <input
+              className="field"
+              type="date"
+              value={trendsBundle.dateTo}
+              onChange={(event) => onChangeDateTo(event.target.value)}
+            />
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <SummaryCard label="24h incidents" value={String(trendsBundle.summary['24h'])} />
+        <SummaryCard label="7d incidents" value={String(trendsBundle.summary['7d'])} />
+        <SummaryCard label="30d incidents" value={String(trendsBundle.summary['30d'])} />
       </div>
 
       {trendsBundle.total < 3 ? (
@@ -1668,7 +2306,9 @@ function TrendsScreen({ trendsBundle, onChangePeriod, onChangeParish }) {
 function ProfileScreen({ bundle, activityBundle, onSave, onPreferencesSave, onAppeal }) {
   const [form, setForm] = useState({
     name: bundle?.user?.name || '',
-    parish: bundle?.user?.parish || 'Kingston'
+    parish: bundle?.user?.parish || 'Kingston',
+    latitude: bundle?.user?.lastKnownLocation?.lat || PARISH_CENTERS.Kingston.lat,
+    longitude: bundle?.user?.lastKnownLocation?.lng || PARISH_CENTERS.Kingston.lng
   });
   const [prefs, setPrefs] = useState(bundle?.user?.notificationPrefs || DEFAULT_NOTIFICATION_PREFS);
   const [appeal, setAppeal] = useState({ strikeId: '', message: '' });
@@ -1676,7 +2316,9 @@ function ProfileScreen({ bundle, activityBundle, onSave, onPreferencesSave, onAp
   useEffect(() => {
     setForm({
       name: bundle?.user?.name || '',
-      parish: bundle?.user?.parish || 'Kingston'
+      parish: bundle?.user?.parish || 'Kingston',
+      latitude: bundle?.user?.lastKnownLocation?.lat || PARISH_CENTERS.Kingston.lat,
+      longitude: bundle?.user?.lastKnownLocation?.lng || PARISH_CENTERS.Kingston.lng
     });
     setPrefs(bundle?.user?.notificationPrefs || DEFAULT_NOTIFICATION_PREFS);
   }, [bundle?.user?.id, bundle?.user?.name, bundle?.user?.parish, bundle?.user?.notificationPrefs]);
@@ -1692,6 +2334,8 @@ function ProfileScreen({ bundle, activityBundle, onSave, onPreferencesSave, onAp
           <div className="section-kicker">Profile overview</div>
           <h2 className="font-display text-3xl text-white">{bundle.user.name}</h2>
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <SummaryCard label="Email" value={bundle.user.email} />
+            <SummaryCard label="Role" value={bundle.user.role.replaceAll('_', ' ')} />
             <SummaryCard label="Parish" value={bundle.user.parish} />
             <SummaryCard label="Reputation" value={String(bundle.user.reputationScore)} />
             <SummaryCard label="Member since" value={formatDateTime(bundle.user.createdAt)} />
@@ -1712,7 +2356,47 @@ function ProfileScreen({ bundle, activityBundle, onSave, onPreferencesSave, onAp
               ))}
             </select>
           </label>
-          <button className="primary-button" onClick={() => onSave(form)}>Save profile</button>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2">
+              <span className="section-label">Latitude</span>
+              <input
+                className="field"
+                type="number"
+                step="0.00001"
+                value={form.latitude}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, latitude: Number(event.target.value) }))
+                }
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="section-label">Longitude</span>
+              <input
+                className="field"
+                type="number"
+                step="0.00001"
+                value={form.longitude}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, longitude: Number(event.target.value) }))
+                }
+              />
+            </label>
+          </div>
+          <button
+            className="primary-button"
+            onClick={() =>
+              onSave({
+                name: form.name,
+                parish: form.parish,
+                lastKnownLocation: {
+                  lat: form.latitude,
+                  lng: form.longitude
+                }
+              })
+            }
+          >
+            Save profile
+          </button>
         </div>
         <div className="surface-card space-y-4">
           <div className="section-label">Notification preferences</div>
@@ -1743,6 +2427,31 @@ function ProfileScreen({ bundle, activityBundle, onSave, onPreferencesSave, onAp
               <span className="section-label">Quiet hours end</span>
               <input className="field" type="time" value={prefs.quietHoursEnd} onChange={(event) => setPrefs((current) => ({ ...current, quietHoursEnd: event.target.value }))} />
             </label>
+          </div>
+          <div className="space-y-3">
+            <div className="section-label">Categories</div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {Object.keys(CATEGORY_META).map((category) => (
+                <label
+                  key={category}
+                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300"
+                >
+                  <input
+                    type="checkbox"
+                    checked={prefs.categories.includes(category)}
+                    onChange={(event) =>
+                      setPrefs((current) => ({
+                        ...current,
+                        categories: event.target.checked
+                          ? [...current.categories, category]
+                          : current.categories.filter((entry) => entry !== category)
+                      }))
+                    }
+                  />
+                  <span>{category}</span>
+                </label>
+              ))}
+            </div>
           </div>
           <button className="primary-button" onClick={() => onPreferencesSave(prefs)}>Save notification settings</button>
         </div>
@@ -1784,12 +2493,32 @@ function ProfileScreen({ bundle, activityBundle, onSave, onPreferencesSave, onAp
                 <div>
                   <div className="font-semibold text-white">{strike.reason}</div>
                   <div className="text-sm text-slate-400">{formatDateTime(strike.createdAt)}</div>
+                  {bundle.appeals.find((entry) => entry.strikeId === strike.id) ? (
+                    <div className="mt-2 text-xs uppercase tracking-[0.16em] text-amber-300">
+                      Appeal status: {bundle.appeals.find((entry) => entry.strikeId === strike.id)?.status}
+                    </div>
+                  ) : null}
                 </div>
               </label>
             )) : <div className="text-sm text-slate-400">No active strikes.</div>}
           </div>
           <textarea className="field min-h-24" placeholder="Submit a short appeal for the selected strike." value={appeal.message} onChange={(event) => setAppeal((current) => ({ ...current, message: event.target.value }))} />
           <button className="ghost-button" onClick={() => onAppeal(appeal)}>Submit appeal</button>
+        </div>
+
+        <div className="surface-card">
+          <div className="section-label mb-4">Recent notifications</div>
+          <div className="space-y-3">
+            {bundle.notifications.length ? bundle.notifications.map((notification) => (
+              <div key={notification.id} className="rounded-[24px] border border-white/10 bg-white/5 px-4 py-3">
+                <div className="font-semibold text-white">{notification.title}</div>
+                <div className="text-sm text-slate-300">{notification.body}</div>
+                <div className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-400">
+                  {formatAgo(notification.createdAt)}
+                </div>
+              </div>
+            )) : <div className="text-sm text-slate-400">No notifications recorded yet.</div>}
+          </div>
         </div>
       </div>
     </section>
@@ -1832,7 +2561,7 @@ function CategoryBadge({ category }) {
   const Icon = CATEGORY_META[category]?.icon || FALLBACK_CATEGORY_ICON;
   return (
     <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.18em] text-slate-300">
-      <Icon className={`h-4 w-4 ${CATEGORY_META[category]?.accent || 'text-white'}`} />
+      <Icon aria-hidden="true" className={`h-4 w-4 ${CATEGORY_META[category]?.accent || 'text-white'}`} />
       {category}
     </span>
   );
@@ -1844,6 +2573,20 @@ function SeverityBadge({ severity }) {
 
 function StatusBadge({ status }) {
   return <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.18em] text-slate-300">{status.replaceAll('_', ' ')}</span>;
+}
+
+function CredibilityBadge({ credibility }) {
+  const tones = {
+    pending: 'border-white/10 bg-white/5 text-slate-200',
+    verified: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-200',
+    flagged: 'border-rose-500/30 bg-rose-500/15 text-rose-100'
+  };
+
+  return (
+    <span className={`inline-flex items-center rounded-full border px-3 py-2 text-xs uppercase tracking-[0.18em] ${tones[credibility] || tones.pending}`}>
+      {credibility}
+    </span>
+  );
 }
 
 function HeatGrid({ points }) {

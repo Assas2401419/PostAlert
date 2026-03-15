@@ -11,6 +11,7 @@ export async function GET(request) {
         categories: searchParams.get('categories')?.split(',').filter(Boolean) || [],
         severities: searchParams.get('severities')?.split(',').filter(Boolean) || [],
         parish: searchParams.get('parish') || '',
+        status: searchParams.get('status') || '',
         startTime: searchParams.get('startTime') || '',
         endTime: searchParams.get('endTime') || '',
         page: Number(searchParams.get('page') || 1),

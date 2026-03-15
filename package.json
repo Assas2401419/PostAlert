@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "test": "node --test",
     "build": "next build",
     "start": "next start",
     "lint": "eslint app components lib auth.js proxy.js --ext js,jsx"

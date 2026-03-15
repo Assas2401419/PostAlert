@@ -88,8 +88,34 @@ CREATE TABLE IF NOT EXISTS moderation_appeals (
   user_id UUID NOT NULL REFERENCES jeip_users(id),
   message TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'submitted',
+  reviewed_at TIMESTAMPTZ,
+  UNIQUE (strike_id, user_id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS comments (
+  id UUID PRIMARY KEY,
+  incident_id UUID NOT NULL REFERENCES incidents(id),
+  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  message TEXT NOT NULL,
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS comments_incident_created_idx ON comments (incident_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES jeip_users(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  invalidated_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx ON password_reset_tokens (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS password_reset_tokens_expires_idx ON password_reset_tokens (expires_at);
 
 CREATE TABLE IF NOT EXISTS pending_photo_scans (
   id UUID PRIMARY KEY,

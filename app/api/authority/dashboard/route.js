@@ -5,8 +5,14 @@ import { requireSessionUser } from '../../../../lib/session-user.js';
 export async function GET(request) {
   try {
     const sessionUser = await requireSessionUser();
-    const parish = new URL(request.url).searchParams.get('parish') || '';
-    return ok(await getAuthorityDashboard(sessionUser.id, parish));
+    const searchParams = new URL(request.url).searchParams;
+    return ok(
+      await getAuthorityDashboard(
+        sessionUser.id,
+        searchParams.get('parish') || '',
+        searchParams.get('status') || ''
+      )
+    );
   } catch (error) {
     return fail(error);
   }

@@ -7,7 +7,9 @@ export async function GET(request) {
     return ok(
       await getTrendCounts(
         searchParams.get('period') || '24h',
-        searchParams.get('parish') || ''
+        searchParams.get('parish') || '',
+        searchParams.get('dateFrom') || '',
+        searchParams.get('dateTo') || ''
       )
     );
   } catch (error) {
